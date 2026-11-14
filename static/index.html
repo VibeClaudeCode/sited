@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d11">
+  <title>Sited</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="auth" class="auth hidden"></div>
+
+  <div id="app" class="app hidden">
+    <nav class="rail" id="rail" aria-label="Серверы"></nav>
+
+    <aside class="sidebar" id="sidebar">
+      <header class="sidebar-head">
+        <span id="server-name" class="ellipsis"></span>
+        <button class="icon-btn" id="invite-btn" title="Пригласить друзей"></button>
+      </header>
+      <div class="channels" id="channels"></div>
+      <footer class="me" id="me"></footer>
+    </aside>
+
+    <main class="chat" id="chat">
+      <header class="chat-head">
+        <button class="icon-btn menu-btn" id="menu-btn" title="Меню"></button>
+        <span class="chat-hash" id="chat-hash"></span>
+        <span id="channel-name" class="channel-title ellipsis"></span>
+        <span id="channel-topic" class="channel-topic ellipsis"></span>
+        <span class="spacer"></span>
+        <span class="conn" id="conn" title="Нет соединения"></span>
+        <button class="icon-btn" id="members-btn" title="Участники"></button>
+      </header>
+      <div class="messages" id="messages"></div>
+      <div class="composer-wrap" id="composer-wrap">
+        <form id="composer" class="composer" autocomplete="off">
+          <textarea id="input" rows="1" maxlength="2000" placeholder="Сообщение"></textarea>
+          <button type="submit" class="send-btn" id="send-btn" title="Отправить"></button>
+        </form>
+        <div class="typing" id="typing"></div>
+      </div>
+    </main>
+
+    <aside class="members" id="members" aria-label="Участники"></aside>
+    <div class="scrim" id="scrim"></div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
