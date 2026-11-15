@@ -64,6 +64,8 @@ jobs:
           python3 - <<'PY'
           import json, os
           c = json.load(open("build-system/appstore-configuration.json"))
+          # Swiftgram requires sg_config (JSON string); "{}" -> built-in defaults.
+          c.setdefault("sg_config", "{}")
           if os.environ.get("TG_API_ID") and os.environ.get("TG_API_HASH"):
               c["api_id"] = os.environ["TG_API_ID"]
               c["api_hash"] = os.environ["TG_API_HASH"]
