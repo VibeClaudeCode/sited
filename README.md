@@ -9,3 +9,7 @@ ssso
 1. (Optional) Settings → Secrets and variables → Actions: add `TG_API_ID` and `TG_API_HASH` (from https://my.telegram.org/apps). Without them the stock Swiftgram keys are used.
 2. Actions → "Build Swiftgram Tontoho IPA" → Run workflow.
 3. Download the `Swiftgram-Tontoho-ipa` artifact when the run finishes. The .ipa is unsigned (fake codesigning); sign it yourself (AltStore, Sideloadly, etc.) to install.
+
+## JavaScript plugins
+
+`patches/tontoho-plugins.patch` adds a JavaScriptCore plugin system (Settings → tontoho Mode → Plugins). API and examples: [PLUGINS.md](PLUGINS.md).

@@ -37,7 +37,13 @@ jobs:
           cd /Users/Shared/telegram-ios
           git checkout "${{ inputs.swiftgram_ref }}"
           git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+          # tontoho-mode.patch first, then the other patches in name order
           git apply --whitespace=nowarn "$GITHUB_WORKSPACE/mod/patches/tontoho-mode.patch"
+          for p in $(ls "$GITHUB_WORKSPACE"/mod/patches/*.patch | sort); do
+            [ "$(basename "$p")" = "tontoho-mode.patch" ] && continue
+            echo "Applying $(basename "$p")"
+            git apply --whitespace=nowarn "$p"
+          done
           git status --short | head -50
           # The bundled fake provisioning profiles have expired; rules_apple's
           # plisttool rejects expired profiles. The IPA is re-signed by the user
