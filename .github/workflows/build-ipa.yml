@@ -1,9 +1,9 @@
 name: Build Swiftgram Tontoho IPA
 
 # Run manually: Actions -> "Build Swiftgram Tontoho IPA" -> Run workflow.
-# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
-#   TG_API_ID   - your api_id from https://my.telegram.org/apps
-#   TG_API_HASH - your api_hash from the same page
+# Optional repository secrets (Settings -> Secrets and variables -> Actions):
+#   TG_API_ID / TG_API_HASH - your own keys from https://my.telegram.org/apps
+# Without them the stock keys from Swiftgram's appstore-configuration.json are used.
 on:
   workflow_dispatch:
     inputs:
@@ -18,16 +18,6 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Check secrets
-        env:
-          TG_API_ID: ${{ secrets.TG_API_ID }}
-          TG_API_HASH: ${{ secrets.TG_API_HASH }}
-        run: |
-          if [ -z "$TG_API_ID" ] || [ -z "$TG_API_HASH" ]; then
-            echo "::error::Add TG_API_ID and TG_API_HASH in Settings -> Secrets and variables -> Actions"
-            exit 1
-          fi
-
       - name: Checkout this repo (patch)
         uses: actions/checkout@v4
         with:
@@ -74,8 +64,12 @@ jobs:
           python3 - <<'PY'
           import json, os
           c = json.load(open("build-system/appstore-configuration.json"))
-          c["api_id"] = os.environ["TG_API_ID"]
-          c["api_hash"] = os.environ["TG_API_HASH"]
+          if os.environ.get("TG_API_ID") and os.environ.get("TG_API_HASH"):
+              c["api_id"] = os.environ["TG_API_ID"]
+              c["api_hash"] = os.environ["TG_API_HASH"]
+              print("Using api_id/api_hash from repository secrets")
+          else:
+              print("::warning::TG_API_ID/TG_API_HASH not set, using stock keys from appstore-configuration.json")
           json.dump(c, open("build-system/ci-configuration.json", "w"), indent=2)
           PY
 
