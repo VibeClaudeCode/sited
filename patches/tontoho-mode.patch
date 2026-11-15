@@ -126,10 +126,10 @@ index c46e1702..fe67d48f 100644
 +}
 diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift
 new file mode 100644
-index 00000000..acae116e
+index 0000000000..47ba45620e
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,128 @@
 +// MARK: tontoho Mode — "Customization": how kept deleted messages look, ads, ghost status in the chat list.
 +import SGItemListUI
 +import SGSimpleSettings
@@ -193,7 +193,7 @@ index 00000000..acae116e
 +
 +public func sgTontohoCustomizationController(context: AccountContext) -> ViewController {
 +    let refresh = ValuePromise(true, ignoreRepeated: false)
-+    var presentOneFromManyImpl: ((CustomizationSelector, [SGOneFromManyOption]) -> Void)?
++    var presentControllerImpl: ((ViewController, ViewControllerPresentationArguments?) -> Void)?
 +
 +    let arguments = SGItemListArguments<CustomizationToggle, AnyHashable, CustomizationSelector, AnyHashable, AnyHashable>(
 +        context: context,
@@ -210,26 +210,37 @@ index 00000000..acae116e
 +            refresh.set(true)
 +        },
 +        setOneFromManyValue: { setting in
-+            let lang = context.sharedContext.currentPresentationData.with { $0 }.strings.baseLanguageCode
++            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++            let lang = presentationData.strings.baseLanguageCode
 +            let s = SGSimpleSettings.shared
-+            var options: [SGOneFromManyOption] = []
++            let actionSheet = ActionSheetController(presentationData: presentationData)
++            var items: [ActionSheetItem] = []
 +            switch setting {
 +            case .mark:
 +                for mark in SGSimpleSettings.DeletedMark.allCases {
-+                    options.append(SGOneFromManyOption(title: markTitle(mark, lang), isSelected: s.deletedMarkEnum == mark, action: {
++                    let title = (s.deletedMarkEnum == mark ? "✓ " : "") + markTitle(mark, lang)
++                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
++                        actionSheet?.dismissAnimated()
 +                        SGSimpleSettings.shared.deletedMark = mark.rawValue
 +                        refresh.set(true)
 +                    }))
 +                }
 +            case .markColor:
 +                for color in SGSimpleSettings.DeletedMarkColor.allCases {
-+                    options.append(SGOneFromManyOption(title: colorTitle(color, lang), isSelected: s.deletedMarkColorEnum == color, action: {
++                    let title = (s.deletedMarkColorEnum == color ? "✓ " : "") + colorTitle(color, lang)
++                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
++                        actionSheet?.dismissAnimated()
 +                        SGSimpleSettings.shared.deletedMarkColor = color.rawValue
 +                        refresh.set(true)
 +                    }))
 +                }
 +            }
-+            presentOneFromManyImpl?(setting, options)
++            actionSheet.setItemGroups([ActionSheetItemGroup(items: items), ActionSheetItemGroup(items: [
++                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
++                    actionSheet?.dismissAnimated()
++                })
++            ])])
++            presentControllerImpl?(actionSheet, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
 +        }
 +    )
 +
@@ -242,11 +253,8 @@ index 00000000..acae116e
 +    }
 +
 +    let controller = ItemListController(context: context, state: signal)
-+    presentOneFromManyImpl = { [weak controller] setting, options in
-+        guard let controller else {
-+            return
-+        }
-+        sgPresentOneFromManySelector(controller: controller, setting: setting, presentationData: context.sharedContext.currentPresentationData.with { $0 }, options: options)
++    presentControllerImpl = { [weak controller] c, a in
++        controller?.present(c, in: .window(.root), with: a)
 +    }
 +    return controller
 +}
