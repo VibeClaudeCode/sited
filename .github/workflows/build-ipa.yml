@@ -1,0 +1,103 @@
+name: Build Swiftgram Tontoho IPA
+
+# Run manually: Actions -> "Build Swiftgram Tontoho IPA" -> Run workflow.
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   TG_API_ID   - your api_id from https://my.telegram.org/apps
+#   TG_API_HASH - your api_hash from the same page
+on:
+  workflow_dispatch:
+    inputs:
+      swiftgram_ref:
+        description: "Swiftgram/Telegram-iOS commit or branch to build"
+        required: true
+        default: "ead4834a191063840864ef73aed8713f41c8a485"
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+
+    steps:
+      - name: Check secrets
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          if [ -z "$TG_API_ID" ] || [ -z "$TG_API_HASH" ]; then
+            echo "::error::Add TG_API_ID and TG_API_HASH in Settings -> Secrets and variables -> Actions"
+            exit 1
+          fi
+
+      - name: Checkout this repo (patch)
+        uses: actions/checkout@v4
+        with:
+          path: mod
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /Users/runner/Library/Android /usr/local/share/dotnet /usr/local/lib/node_modules || true
+          df -h /
+
+      - name: Clone Swiftgram and apply patch
+        run: |
+          set -ex
+          sudo mkdir -p /Users/Shared
+          sudo chown "$USER" /Users/Shared
+          git clone https://github.com/Swiftgram/Telegram-iOS.git /Users/Shared/telegram-ios
+          cd /Users/Shared/telegram-ios
+          git checkout "${{ inputs.swiftgram_ref }}"
+          git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+          git apply --whitespace=nowarn "$GITHUB_WORKSPACE/mod/patches/tontoho-mode.patch"
+          git status --short | head -50
+
+      - name: Select Xcode
+        run: |
+          cd /Users/Shared/telegram-ios
+          WANT=$(python3 -c 'import json;print(json.load(open("versions.json"))["xcode"])')
+          echo "Wanted Xcode $WANT; installed:"; ls -d /Applications/Xcode*.app
+          if [ -d "/Applications/Xcode_$WANT.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_$WANT.app/Contents/Developer"
+          else
+            NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+            echo "::warning::Xcode $WANT not on runner, using $NEWEST"
+            sudo xcode-select -s "$NEWEST/Contents/Developer"
+          fi
+          xcodebuild -version
+          df -h /
+
+      - name: Write build configuration
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          cd /Users/Shared/telegram-ios
+          python3 - <<'PY'
+          import json, os
+          c = json.load(open("build-system/appstore-configuration.json"))
+          c["api_id"] = os.environ["TG_API_ID"]
+          c["api_hash"] = os.environ["TG_API_HASH"]
+          json.dump(c, open("build-system/ci-configuration.json", "w"), indent=2)
+          PY
+
+      - name: Build
+        run: |
+          set -x
+          cd /Users/Shared/telegram-ios
+          BUILD_NUMBER=$(( $(git rev-list --count HEAD) + $(cat build_number_offset) ))
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot=/private/var/tmp/_bazel_ci \
+            --overrideXcodeVersion \
+            build \
+            --configurationPath=build-system/ci-configuration.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa "$GITHUB_WORKSPACE/out/Swiftgram-Tontoho.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Swiftgram-Tontoho-ipa
+          path: out/Swiftgram-Tontoho.ipa
+          retention-days: 14
