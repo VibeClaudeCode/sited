@@ -113,7 +113,17 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa "$GITHUB_WORKSPACE/out/Swiftgram-Tontoho.ipa"
+          IPA=""
+          for candidate in bazel-bin/Telegram/Swiftgram.ipa bazel-bin/Telegram/Telegram.ipa; do
+            if [ -f "$candidate" ]; then IPA="$candidate"; break; fi
+          done
+          if [ -z "$IPA" ]; then
+            IPA=$(find -L bazel-bin/Telegram bazel-out -maxdepth 6 -name '*.ipa' 2>/dev/null | head -1)
+          fi
+          echo "IPA: $IPA"
+          test -n "$IPA"
+          cp -L "$IPA" "$GITHUB_WORKSPACE/out/Swiftgram-Tontoho.ipa"
+          ls -la "$GITHUB_WORKSPACE/out"
 
       - uses: actions/upload-artifact@v4
         with:
