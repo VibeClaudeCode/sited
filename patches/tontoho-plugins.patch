@@ -1,0 +1,1253 @@
+diff --git a/Swiftgram/SGPlugins/BUILD b/Swiftgram/SGPlugins/BUILD
+new file mode 100644
+index 0000000000..c1fec18461
+--- /dev/null
++++ b/Swiftgram/SGPlugins/BUILD
+@@ -0,0 +1,14 @@
++load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
++
++swift_library(
++    name = "SGPlugins",
++    module_name = "SGPlugins",
++    srcs = glob([
++        "Sources/**/*.swift",
++    ]),
++    deps = [
++    ],
++    visibility = [
++        "//visibility:public",
++    ],
++)
+diff --git a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
+new file mode 100644
+index 0000000000..f23732bd48
+--- /dev/null
++++ b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
+@@ -0,0 +1,163 @@
++// MARK: tontoho Mode — example plugins that can be installed from settings.
++import Foundation
++
++public enum SGPluginExamples {
++    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo]
++
++    static let textTools = #"""
++// @id text-tools
++// @name Text Tools
++// @version 1.0
++// @author tontoho
++// @description .up .low .rev .mock .wide — transform the text you send. Message menu: Reverse text.
++
++function mock(s) {
++  var out = "";
++  var upper = false;
++  for (var i = 0; i < s.length; i++) {
++    var c = s[i];
++    if (c.toLowerCase() !== c.toUpperCase()) {
++      out += upper ? c.toUpperCase() : c.toLowerCase();
++      upper = !upper;
++    } else {
++      out += c;
++    }
++  }
++  return out;
++}
++
++tg.addCommand("up", function (args) { return args.toUpperCase(); });
++tg.addCommand("low", function (args) { return args.toLowerCase(); });
++tg.addCommand("rev", function (args) { return Array.from(args).reverse().join(""); });
++tg.addCommand("mock", function (args) { return mock(args); });
++tg.addCommand("wide", function (args) { return Array.from(args).join(" "); });
++
++tg.addMessageAction("Reverse text", function (message) {
++  return Array.from(message.text).reverse().join("");
++});
++"""#
++
++    static let calculator = #"""
++// @id calculator
++// @name Calculator
++// @version 1.0
++// @author tontoho
++// @description .calc 2+2*3 sends "2+2*3 = 8". Supports + - * / % ^ and parentheses.
++
++tg.addCommand("calc", function (args) {
++  var expr = args.trim();
++  if (!/^[0-9+\-*/%^().,\s]+$/.test(expr)) {
++    tg.alert("Only numbers and + - * / % ^ ( ) are allowed.", "Calculator");
++    return null;
++  }
++  try {
++    var js = expr.replace(/,/g, ".").replace(/\^/g, "**");
++    var value = Function('"use strict"; return (' + js + ');')();
++    if (typeof value !== "number" || !isFinite(value)) {
++      tg.alert("Can't calculate this.", "Calculator");
++      return null;
++    }
++    var rounded = Math.round(value * 1e10) / 1e10;
++    return expr + " = " + rounded;
++  } catch (e) {
++    tg.alert("Error: " + e, "Calculator");
++    return null;
++  }
++});
++"""#
++
++    static let layoutFixer = #"""
++// @id layout-fixer
++// @name Keyboard Layout Fixer
++// @version 1.0
++// @author tontoho
++// @description Fixes text typed in the wrong layout (ghbdtn → привет). Command: .fix text. Message menu: Fix layout.
++
++var en = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?";
++var ru = "ёйцукенгшщзхъфывапролджэячсмитьбю.ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,";
++
++function convert(text) {
++  var latin = 0, cyrillic = 0;
++  for (var i = 0; i < text.length; i++) {
++    if (/[a-zA-Z]/.test(text[i])) latin++;
++    else if (/[а-яА-ЯёЁ]/.test(text[i])) cyrillic++;
++  }
++  var from = latin >= cyrillic ? en : ru;
++  var to = latin >= cyrillic ? ru : en;
++  var out = "";
++  for (var j = 0; j < text.length; j++) {
++    var index = from.indexOf(text[j]);
++    out += index >= 0 ? to[index] : text[j];
++  }
++  return out;
++}
++
++tg.addCommand("fix", function (args) { return convert(args); });
++tg.addMessageAction("Fix layout", function (message) { return convert(message.text); });
++"""#
++
++    static let templates = #"""
++// @id templates
++// @name Templates
++// @version 1.0
++// @author tontoho
++// @description .tset name text — save a template; .t name — send it; .tdel name — delete; .tlist — show all.
++
++function load() {
++  try { return JSON.parse(tg.storage.get("templates") || "{}"); } catch (e) { return {}; }
++}
++function save(t) { tg.storage.set("templates", JSON.stringify(t)); }
++
++tg.addCommand("tset", function (args) {
++  var m = args.match(/^(\S+)\s+([\s\S]+)$/);
++  if (!m) { tg.alert("Usage: .tset name text", "Templates"); return null; }
++  var t = load();
++  t[m[1].toLowerCase()] = m[2];
++  save(t);
++  tg.alert("Saved template \"" + m[1] + "\"", "Templates");
++  return null;
++});
++
++tg.addCommand("t", function (args) {
++  var t = load();
++  var key = args.trim().toLowerCase();
++  if (!(key in t)) { tg.alert("No template \"" + key + "\". Use .tlist", "Templates"); return null; }
++  return t[key];
++});
++
++tg.addCommand("tdel", function (args) {
++  var t = load();
++  delete t[args.trim().toLowerCase()];
++  save(t);
++  return null;
++});
++
++tg.addCommand("tlist", function () {
++  var t = load();
++  var keys = Object.keys(t);
++  tg.alert(keys.length ? keys.map(function (k) { return k + ": " + t[k]; }).join("\n\n") : "No templates yet.", "Templates");
++  return null;
++});
++"""#
++
++    static let messageInfo = #"""
++// @id message-info
++// @name Message Info
++// @version 1.0
++// @author tontoho
++// @description Message menu: Message info — id, chat id, date, characters and words.
++
++tg.addMessageAction("Message info", function (message) {
++  var date = new Date(message.date * 1000);
++  var words = message.text.trim() ? message.text.trim().split(/\s+/).length : 0;
++  return [
++    "Message ID: " + message.id,
++    "Chat ID: " + message.chatId,
++    "Date: " + date.toLocaleString(),
++    "Outgoing: " + (message.outgoing ? "yes" : "no"),
++    "Characters: " + Array.from(message.text).length,
++    "Words: " + words
++  ].join("\n");
++});
++"""#
++}
+diff --git a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
+new file mode 100644
+index 0000000000..ebda2fe2e5
+--- /dev/null
++++ b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
+@@ -0,0 +1,702 @@
++// MARK: tontoho Mode — JavaScript plugins (JavaScriptCore).
++//
++// A plugin is a JavaScript file. Optional metadata goes in the first comment lines:
++//   // @id my-plugin
++//   // @name My Plugin
++//   // @version 1.0
++//   // @author Me
++//   // @description What it does
++//
++// Plugin API (global `tg` object):
++//   tg.onOutgoingMessage(fn)        fn(text, chat) -> string (replace) | null/false (don't send) | undefined (keep)
++//   tg.addCommand(name, fn)         ".name args" in an outgoing message -> fn(args, chat), same return values
++//   tg.addMessageAction(title, fn)  message menu item; fn(message); a returned string is shown with a Copy button
++//   tg.alert(text[, title])         show an alert
++//   tg.copy(text)                   copy to clipboard
++//   tg.openUrl(url)                 open a link
++//   tg.httpGet(url, cb)             cb(error, body) — error is null on success
++//   tg.storage.get(key) / tg.storage.set(key, value) / tg.storage.remove(key)   per-plugin string storage
++//   tg.log(...) / console.log(...)  write to the plugin log (Settings → tontoho Mode → Plugins → Log)
++//   tg.version                      API version string
++//
++// chat    = { chatId: "<id>" }
++// message = { id, chatId: "<id>", text, outgoing, date }
++
++import Foundation
++import UIKit
++import JavaScriptCore
++import UniformTypeIdentifiers
++
++public struct SGPluginInfo: Codable, Equatable {
++    public var id: String
++    public var name: String
++    public var version: String
++    public var author: String
++    public var description: String
++    public var code: String
++    public var enabled: Bool
++}
++
++public struct SGPluginMessage {
++    public let id: Int32
++    public let chatId: Int64
++    public let text: String
++    public let outgoing: Bool
++    public let date: Int32
++
++    public init(id: Int32, chatId: Int64, text: String, outgoing: Bool, date: Int32) {
++        self.id = id
++        self.chatId = chatId
++        self.text = text
++        self.outgoing = outgoing
++        self.date = date
++    }
++}
++
++public struct SGPluginMessageAction {
++    public let pluginId: String
++    public let index: Int
++    public let title: String
++}
++
++public enum SGPluginOutgoingResult {
++    case unchanged
++    case replaced(String)
++    case cancelled
++}
++
++public enum SGPluginError: Error {
++    case empty
++    case script(String)
++
++    public var text: String {
++        switch self {
++        case .empty:
++            return "The plugin file is empty."
++        case let .script(message):
++            return message
++        }
++    }
++}
++
++private final class SGLoadedPlugin {
++    let info: SGPluginInfo
++    let context: JSContext
++    var outgoingHandlers: [JSValue] = []
++    var commands: [String: JSValue] = [:]
++    var messageActions: [(title: String, handler: JSValue)] = []
++
++    init(info: SGPluginInfo, context: JSContext) {
++        self.info = info
++        self.context = context
++    }
++}
++
++public final class SGPluginManager {
++    public static let shared = SGPluginManager()
++
++    public static let apiVersion = "1.0"
++
++    private let listKey = "sg.tontoho.plugins.list"
++    private let storageKeyPrefix = "sg.tontoho.plugins.storage."
++    private let maxLogLines = 300
++
++    public private(set) var plugins: [SGPluginInfo] = []
++    private var loaded: [String: SGLoadedPlugin] = [:]
++    private var logs: [String: [String]] = [:]
++    private var didStart = false
++
++    private init() {
++        if let data = UserDefaults.standard.data(forKey: self.listKey), let list = try? JSONDecoder().decode([SGPluginInfo].self, from: data) {
++            self.plugins = list
++        }
++    }
++
++    // MARK: Lifecycle
++
++    private func startIfNeeded() {
++        if self.didStart {
++            return
++        }
++        self.didStart = true
++        for plugin in self.plugins where plugin.enabled {
++            _ = self.load(plugin)
++        }
++    }
++
++    private func save() {
++        if let data = try? JSONEncoder().encode(self.plugins) {
++            UserDefaults.standard.set(data, forKey: self.listKey)
++        }
++    }
++
++    public var hasActivePlugins: Bool {
++        return self.plugins.contains(where: { $0.enabled })
++    }
++
++    @discardableResult
++    public func install(code: String) throws -> SGPluginInfo {
++        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
++        if trimmed.isEmpty {
++            throw SGPluginError.empty
++        }
++        self.startIfNeeded()
++
++        var info = SGPluginManager.parseMetadata(code: code)
++        if let existing = self.plugins.first(where: { $0.id == info.id }) {
++            info.enabled = existing.enabled
++        }
++
++        self.unload(id: info.id)
++        self.logs[info.id] = []
++        if info.enabled {
++            if let error = self.load(info) {
++                self.unload(id: info.id)
++                throw SGPluginError.script(error)
++            }
++        } else if let error = SGPluginManager.checkSyntax(code: code) {
++            throw SGPluginError.script(error)
++        }
++
++        if let index = self.plugins.firstIndex(where: { $0.id == info.id }) {
++            self.plugins[index] = info
++        } else {
++            self.plugins.append(info)
++        }
++        self.save()
++        return info
++    }
++
++    public func remove(id: String) {
++        self.unload(id: id)
++        self.plugins.removeAll(where: { $0.id == id })
++        self.logs[id] = nil
++        UserDefaults.standard.removeObject(forKey: self.storageKeyPrefix + id)
++        self.save()
++    }
++
++    public func setEnabled(id: String, enabled: Bool) {
++        self.startIfNeeded()
++        guard let index = self.plugins.firstIndex(where: { $0.id == id }) else {
++            return
++        }
++        self.plugins[index].enabled = enabled
++        self.save()
++        self.unload(id: id)
++        if enabled {
++            if let error = self.load(self.plugins[index]) {
++                self.appendLog(id: id, "Load error: \(error)")
++            }
++        }
++    }
++
++    public func log(id: String) -> String {
++        let lines = self.logs[id] ?? []
++        return lines.isEmpty ? "—" : lines.joined(separator: "\n")
++    }
++
++    // MARK: Hooks
++
++    public func processOutgoing(text: String, chatId: Int64) -> SGPluginOutgoingResult {
++        guard Thread.isMainThread else {
++            return .unchanged
++        }
++        self.startIfNeeded()
++        if self.loaded.isEmpty {
++            return .unchanged
++        }
++
++        var current = text
++        var changed = false
++
++        // ".command args"
++        if current.hasPrefix(".") {
++            let body = String(current.dropFirst())
++            let name: String
++            let args: String
++            if let space = body.firstIndex(where: { $0 == " " || $0 == "\n" }) {
++                name = String(body[body.startIndex ..< space]).lowercased()
++                args = String(body[body.index(after: space)...])
++            } else {
++                name = body.lowercased()
++                args = ""
++            }
++            if !name.isEmpty {
++                for plugin in self.orderedLoaded() {
++                    if let handler = plugin.commands[name] {
++                        let chat = self.chatObject(chatId: chatId, in: plugin.context)
++                        let result = self.call(plugin: plugin, handler: handler, arguments: [args, chat])
++                        switch self.interpretOutgoing(result) {
++                        case .unchanged:
++                            break
++                        case let .replaced(newText):
++                            current = newText
++                            changed = true
++                        case .cancelled:
++                            return .cancelled
++                        }
++                        break
++                    }
++                }
++            }
++        }
++
++        for plugin in self.orderedLoaded() {
++            for handler in plugin.outgoingHandlers {
++                let chat = self.chatObject(chatId: chatId, in: plugin.context)
++                let result = self.call(plugin: plugin, handler: handler, arguments: [current, chat])
++                switch self.interpretOutgoing(result) {
++                case .unchanged:
++                    break
++                case let .replaced(newText):
++                    current = newText
++                    changed = true
++                case .cancelled:
++                    return .cancelled
++                }
++            }
++        }
++
++        if changed && current != text {
++            if current.isEmpty {
++                return .cancelled
++            }
++            return .replaced(current)
++        }
++        return .unchanged
++    }
++
++    public func messageActions() -> [SGPluginMessageAction] {
++        guard Thread.isMainThread else {
++            return []
++        }
++        self.startIfNeeded()
++        var result: [SGPluginMessageAction] = []
++        for plugin in self.orderedLoaded() {
++            for (index, action) in plugin.messageActions.enumerated() {
++                result.append(SGPluginMessageAction(pluginId: plugin.info.id, index: index, title: action.title))
++            }
++        }
++        return result
++    }
++
++    public func performMessageAction(_ action: SGPluginMessageAction, message: SGPluginMessage) {
++        guard let plugin = self.loaded[action.pluginId], action.index < plugin.messageActions.count else {
++            return
++        }
++        let handler = plugin.messageActions[action.index].handler
++        let messageObject: [String: Any] = [
++            "id": NSNumber(value: message.id),
++            "chatId": String(message.chatId),
++            "text": message.text,
++            "outgoing": NSNumber(value: message.outgoing),
++            "date": NSNumber(value: message.date)
++        ]
++        let value = JSValue(object: messageObject, in: plugin.context) as Any
++        let result = self.call(plugin: plugin, handler: handler, arguments: [value])
++        if let result = result, result.isString, let text = result.toString(), !text.isEmpty {
++            SGPluginUI.showResult(title: action.title, text: text)
++        }
++    }
++
++    // MARK: Loading
++
++    private func orderedLoaded() -> [SGLoadedPlugin] {
++        var result: [SGLoadedPlugin] = []
++        for plugin in self.plugins {
++            if let loadedPlugin = self.loaded[plugin.id] {
++                result.append(loadedPlugin)
++            }
++        }
++        return result
++    }
++
++    private func unload(id: String) {
++        self.loaded[id] = nil
++    }
++
++    /// Returns an error description, or nil on success.
++    private func load(_ info: SGPluginInfo) -> String? {
++        guard let context = JSContext() else {
++            return "Could not create a JavaScript context."
++        }
++        context.name = info.name
++        let plugin = SGLoadedPlugin(info: info, context: context)
++        let pluginId = info.id
++
++        context.exceptionHandler = { [weak self] exceptionContext, exception in
++            // A custom handler replaces the default one, which stores the exception; keep that behaviour.
++            exceptionContext?.exception = exception
++            let text = exception?.toString() ?? "unknown error"
++            self?.appendLog(id: pluginId, "Error: \(text)")
++        }
++
++        self.installAPI(plugin: plugin)
++
++        context.exception = nil
++        context.evaluateScript(info.code)
++        if let exception = context.exception {
++            let text = exception.toString() ?? "unknown error"
++            context.exception = nil
++            return text
++        }
++        self.loaded[info.id] = plugin
++        self.appendLog(id: pluginId, "Loaded \(info.name) \(info.version)")
++        return nil
++    }
++
++    private static func checkSyntax(code: String) -> String? {
++        guard let context = JSContext() else {
++            return nil
++        }
++        // Wrapping in a never-called function only parses the code.
++        let wrapped = "(function(){\n" + code + "\n})"
++        context.evaluateScript(wrapped)
++        if let exception = context.exception {
++            return exception.toString()
++        }
++        return nil
++    }
++
++    private func installAPI(plugin: SGLoadedPlugin) {
++        let context = plugin.context
++        let pluginId = plugin.info.id
++        let pluginName = plugin.info.name
++        let storageKey = self.storageKeyPrefix + pluginId
++
++        guard let tg = JSValue(newObjectIn: context), let storage = JSValue(newObjectIn: context), let console = JSValue(newObjectIn: context) else {
++            return
++        }
++
++        let onOutgoingMessage: @convention(block) (JSValue) -> Void = { [weak plugin] handler in
++            guard let plugin = plugin, !handler.isUndefined, !handler.isNull else {
++                return
++            }
++            plugin.outgoingHandlers.append(handler)
++        }
++        let addCommand: @convention(block) (String, JSValue) -> Void = { [weak plugin] name, handler in
++            guard let plugin = plugin, !handler.isUndefined, !handler.isNull else {
++                return
++            }
++            var normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
++            if normalized.hasPrefix(".") {
++                normalized = String(normalized.dropFirst())
++            }
++            if !normalized.isEmpty {
++                plugin.commands[normalized] = handler
++            }
++        }
++        let addMessageAction: @convention(block) (String, JSValue) -> Void = { [weak plugin] title, handler in
++            guard let plugin = plugin, !handler.isUndefined, !handler.isNull else {
++                return
++            }
++            plugin.messageActions.append((title: title, handler: handler))
++        }
++        let alert: @convention(block) (String, JSValue) -> Void = { text, title in
++            let titleText = (title.isUndefined || title.isNull) ? pluginName : (title.toString() ?? pluginName)
++            SGPluginUI.showAlert(title: titleText, text: text)
++        }
++        let copy: @convention(block) (String) -> Void = { text in
++            DispatchQueue.main.async {
++                UIPasteboard.general.string = text
++            }
++        }
++        let openUrl: @convention(block) (String) -> Void = { string in
++            guard let url = URL(string: string) else {
++                return
++            }
++            DispatchQueue.main.async {
++                UIApplication.shared.open(url, options: [:], completionHandler: nil)
++            }
++        }
++        let httpGet: @convention(block) (String, JSValue) -> Void = { [weak self] string, callback in
++            guard let url = URL(string: string), url.scheme == "https" || url.scheme == "http" else {
++                callback.call(withArguments: ["invalid url", NSNull()])
++                return
++            }
++            URLSession.shared.dataTask(with: url, completionHandler: { data, response, error in
++                var body = ""
++                if let data = data {
++                    body = String(data: data, encoding: .utf8) ?? ""
++                }
++                var errorText: String?
++                if let error = error {
++                    errorText = error.localizedDescription
++                } else if let response = response as? HTTPURLResponse, !(200 ..< 300).contains(response.statusCode) {
++                    errorText = "HTTP \(response.statusCode)"
++                }
++                DispatchQueue.main.async {
++                    guard let self = self, self.loaded[pluginId] != nil else {
++                        return
++                    }
++                    let errorArgument: Any = errorText.map { $0 as Any } ?? NSNull()
++                    callback.call(withArguments: [errorArgument, body])
++                }
++            }).resume()
++        }
++        let storageGet: @convention(block) (String) -> String? = { key in
++            let dict = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
++            return dict[key]
++        }
++        let storageSet: @convention(block) (String, JSValue) -> Void = { key, value in
++            var dict = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
++            if value.isUndefined || value.isNull {
++                dict[key] = nil
++            } else {
++                dict[key] = value.toString() ?? ""
++            }
++            UserDefaults.standard.set(dict, forKey: storageKey)
++        }
++        let storageRemove: @convention(block) (String) -> Void = { key in
++            var dict = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
++            dict[key] = nil
++            UserDefaults.standard.set(dict, forKey: storageKey)
++        }
++        let log: @convention(block) () -> Void = { [weak self] in
++            let args = JSContext.currentArguments() as? [JSValue] ?? []
++            let line = args.map { $0.toString() ?? "" }.joined(separator: " ")
++            self?.appendLog(id: pluginId, line)
++        }
++
++        tg.setObject(unsafeBitCast(onOutgoingMessage, to: AnyObject.self), forKeyedSubscript: "onOutgoingMessage" as NSString)
++        tg.setObject(unsafeBitCast(addCommand, to: AnyObject.self), forKeyedSubscript: "addCommand" as NSString)
++        tg.setObject(unsafeBitCast(addMessageAction, to: AnyObject.self), forKeyedSubscript: "addMessageAction" as NSString)
++        tg.setObject(unsafeBitCast(alert, to: AnyObject.self), forKeyedSubscript: "alert" as NSString)
++        tg.setObject(unsafeBitCast(copy, to: AnyObject.self), forKeyedSubscript: "copy" as NSString)
++        tg.setObject(unsafeBitCast(openUrl, to: AnyObject.self), forKeyedSubscript: "openUrl" as NSString)
++        tg.setObject(unsafeBitCast(httpGet, to: AnyObject.self), forKeyedSubscript: "httpGet" as NSString)
++        tg.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "log" as NSString)
++        tg.setObject(SGPluginManager.apiVersion, forKeyedSubscript: "version" as NSString)
++
++        storage.setObject(unsafeBitCast(storageGet, to: AnyObject.self), forKeyedSubscript: "get" as NSString)
++        storage.setObject(unsafeBitCast(storageSet, to: AnyObject.self), forKeyedSubscript: "set" as NSString)
++        storage.setObject(unsafeBitCast(storageRemove, to: AnyObject.self), forKeyedSubscript: "remove" as NSString)
++        tg.setObject(storage, forKeyedSubscript: "storage" as NSString)
++
++        console.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "log" as NSString)
++        console.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "error" as NSString)
++        console.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "warn" as NSString)
++
++        context.setObject(tg, forKeyedSubscript: "tg" as NSString)
++        context.setObject(console, forKeyedSubscript: "console" as NSString)
++    }
++
++    // MARK: Helpers
++
++    private func call(plugin: SGLoadedPlugin, handler: JSValue, arguments: [Any]) -> JSValue? {
++        plugin.context.exception = nil
++        let result = handler.call(withArguments: arguments)
++        if plugin.context.exception != nil {
++            plugin.context.exception = nil
++            return nil
++        }
++        return result
++    }
++
++    private func chatObject(chatId: Int64, in context: JSContext) -> Any {
++        let dict: [String: Any] = ["chatId": String(chatId)]
++        return JSValue(object: dict, in: context) as Any
++    }
++
++    private func interpretOutgoing(_ value: JSValue?) -> SGPluginOutgoingResult {
++        guard let value = value else {
++            return .unchanged
++        }
++        if value.isUndefined {
++            return .unchanged
++        }
++        if value.isNull {
++            return .cancelled
++        }
++        if value.isBoolean {
++            return value.toBool() ? .unchanged : .cancelled
++        }
++        if let text = value.toString() {
++            return .replaced(text)
++        }
++        return .unchanged
++    }
++
++    private func appendLog(id: String, _ line: String) {
++        let formatter = DateFormatter()
++        formatter.dateFormat = "HH:mm:ss"
++        var lines = self.logs[id] ?? []
++        lines.append("[\(formatter.string(from: Date()))] \(line)")
++        if lines.count > self.maxLogLines {
++            lines.removeFirst(lines.count - self.maxLogLines)
++        }
++        self.logs[id] = lines
++    }
++
++    static func parseMetadata(code: String) -> SGPluginInfo {
++        var meta: [String: String] = [:]
++        for rawLine in code.components(separatedBy: .newlines).prefix(40) {
++            let line = rawLine.trimmingCharacters(in: .whitespaces)
++            guard line.hasPrefix("//") else {
++                if line.isEmpty {
++                    continue
++                }
++                break
++            }
++            let content = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
++            guard content.hasPrefix("@") else {
++                continue
++            }
++            let keyAndValue = content.dropFirst()
++            if let space = keyAndValue.firstIndex(of: " ") {
++                let key = String(keyAndValue[keyAndValue.startIndex ..< space]).lowercased()
++                let value = String(keyAndValue[keyAndValue.index(after: space)...]).trimmingCharacters(in: .whitespaces)
++                meta[key] = value
++            }
++        }
++        let name = meta["name"] ?? "Plugin"
++        var id = meta["id"] ?? ""
++        if id.isEmpty {
++            let allowed = CharacterSet.alphanumerics
++            id = name.lowercased().unicodeScalars.map { allowed.contains($0) ? String($0) : "-" }.joined()
++            if id.isEmpty || id == "plugin" {
++                id = "plugin-\(UInt(bitPattern: code.hashValue))"
++            }
++        }
++        return SGPluginInfo(
++            id: id,
++            name: name,
++            version: meta["version"] ?? "1.0",
++            author: meta["author"] ?? "",
++            description: meta["description"] ?? "",
++            code: code,
++            enabled: true
++        )
++    }
++}
++
++// MARK: UIKit presentation helpers
++
++public enum SGPluginUI {
++    static func topViewController() -> UIViewController? {
++        let windows = UIApplication.shared.connectedScenes
++            .compactMap { $0 as? UIWindowScene }
++            .flatMap { $0.windows }
++        let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first
++        var controller = window?.rootViewController
++        while let presented = controller?.presentedViewController, !presented.isBeingDismissed {
++            controller = presented
++        }
++        return controller
++    }
++
++    static func present(_ controller: UIViewController) {
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
++            topViewController()?.present(controller, animated: true, completion: nil)
++        }
++    }
++
++    public static func showAlert(title: String?, text: String, okTitle: String = "OK") {
++        let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: okTitle, style: .default, handler: nil))
++        present(alert)
++    }
++
++    public static func showResult(title: String?, text: String, copyTitle: String = "Copy", okTitle: String = "OK") {
++        let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: copyTitle, style: .default, handler: { _ in
++            UIPasteboard.general.string = text
++        }))
++        alert.addAction(UIAlertAction(title: okTitle, style: .cancel, handler: nil))
++        present(alert)
++    }
++
++    public static func confirm(title: String?, text: String?, confirmTitle: String, cancelTitle: String, destructive: Bool, completion: @escaping () -> Void) {
++        let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel, handler: nil))
++        alert.addAction(UIAlertAction(title: confirmTitle, style: destructive ? .destructive : .default, handler: { _ in
++            completion()
++        }))
++        present(alert)
++    }
++
++    public static func askText(title: String?, placeholder: String, okTitle: String, cancelTitle: String, completion: @escaping (String) -> Void) {
++        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
++        alert.addTextField { textField in
++            textField.placeholder = placeholder
++            textField.keyboardType = .URL
++            textField.autocapitalizationType = .none
++            textField.autocorrectionType = .no
++        }
++        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel, handler: nil))
++        alert.addAction(UIAlertAction(title: okTitle, style: .default, handler: { [weak alert] _ in
++            let text = alert?.textFields?.first?.text ?? ""
++            completion(text.trimmingCharacters(in: .whitespacesAndNewlines))
++        }))
++        present(alert)
++    }
++
++    public static func download(urlString: String, completion: @escaping (String?, String?) -> Void) {
++        guard let url = URL(string: urlString), url.scheme == "https" || url.scheme == "http" else {
++            completion(nil, "Invalid URL")
++            return
++        }
++        URLSession.shared.dataTask(with: url, completionHandler: { data, response, error in
++            var text: String?
++            var errorText: String?
++            if let error = error {
++                errorText = error.localizedDescription
++            } else if let response = response as? HTTPURLResponse, !(200 ..< 300).contains(response.statusCode) {
++                errorText = "HTTP \(response.statusCode)"
++            } else if let data = data {
++                text = String(data: data, encoding: .utf8)
++                if text == nil {
++                    errorText = "The file is not UTF-8 text."
++                }
++            }
++            DispatchQueue.main.async {
++                completion(text, errorText)
++            }
++        }).resume()
++    }
++
++    private static var currentPickerDelegate: SGPluginDocumentPickerDelegate?
++
++    public static func pickFile(completion: @escaping (String?, String?) -> Void) {
++        let types: [UTType] = [.javaScript, .plainText, .text, .data]
++        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
++        let delegate = SGPluginDocumentPickerDelegate(completion: { text, error in
++            SGPluginUI.currentPickerDelegate = nil
++            completion(text, error)
++        })
++        SGPluginUI.currentPickerDelegate = delegate
++        picker.delegate = delegate
++        picker.allowsMultipleSelection = false
++        present(picker)
++    }
++}
++
++private final class SGPluginDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
++    private let completion: (String?, String?) -> Void
++
++    init(completion: @escaping (String?, String?) -> Void) {
++        self.completion = completion
++    }
++
++    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
++        guard let url = urls.first else {
++            self.completion(nil, nil)
++            return
++        }
++        let accessing = url.startAccessingSecurityScopedResource()
++        defer {
++            if accessing {
++                url.stopAccessingSecurityScopedResource()
++            }
++        }
++        if let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) {
++            self.completion(text, nil)
++        } else {
++            self.completion(nil, "Could not read the file as UTF-8 text.")
++        }
++    }
++
++    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
++        self.completion(nil, nil)
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/BUILD b/Swiftgram/SGSettingsUI/BUILD
+index f775863425..0f3ccbb3f9 100644
+--- a/Swiftgram/SGSettingsUI/BUILD
++++ b/Swiftgram/SGSettingsUI/BUILD
+@@ -20,6 +20,7 @@ swift_library(
+         "//Swiftgram/SGLogging:SGLogging",
+         "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
+         "//Swiftgram/SGStrings:SGStrings",
++        "//Swiftgram/SGPlugins:SGPlugins",
+ #        "//Swiftgram/SGAPI:SGAPI",
+         "//Swiftgram/SGAPIToken:SGAPIToken",
+         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+index cebc397897..9952c106d4 100644
+--- a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+@@ -33,6 +33,7 @@ private enum TontohoToggle: String {
+ 
+ private enum TontohoLink: String {
+     case customization
++    case plugins
+ }
+ 
+ private typealias TontohoEntry = SGItemListUIEntry<TontohoSection, TontohoToggle, AnyHashable, AnyHashable, TontohoLink, AnyHashable>
+@@ -52,6 +53,7 @@ private func tontohoEntries(presentationData: PresentationData) -> [TontohoEntry
+     let enabledCount = options.filter { $0 }.count
+ 
+     entries.append(.disclosure(id: id.count, section: .categories, link: .customization, text: i18n("TontohoMode.Customization", lang)))
++    entries.append(.disclosure(id: id.count, section: .categories, link: .plugins, text: i18n("TontohoMode.Plugins", lang)))
+ 
+     entries.append(.header(id: id.count, section: .ghost, text: i18n("Settings.GhostMode.Header", lang), badge: nil))
+     entries.append(.toggle(id: id.count, section: .ghost, settingName: .ghostAll, value: enabledCount > 0, text: "\(i18n("TontohoMode.Ghost", lang))  \(enabledCount)/\(options.count)", enabled: true))
+@@ -107,6 +109,8 @@ public func sgTontohoModeController(context: AccountContext) -> ViewController {
+             switch link {
+             case .customization:
+                 pushControllerImpl?(sgTontohoCustomizationController(context: context))
++            case .plugins:
++                pushControllerImpl?(sgTontohoPluginsController(context: context))
+             }
+         }
+     )
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoPluginsController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoPluginsController.swift
+new file mode 100644
+index 0000000000..df5e88faa9
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoPluginsController.swift
+@@ -0,0 +1,159 @@
++// MARK: tontoho Mode — JavaScript plugins settings screen.
++import SGItemListUI
++import SGPlugins
++import SGStrings
++
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++
++private struct TontohoPluginsSection: SGItemListSection, Hashable {
++    let rawValue: Int32
++}
++
++private enum TontohoPluginsAction: Hashable {
++    case addFile
++    case addClipboard
++    case addURL
++    case addExamples
++    case showLog(String)
++    case delete(String)
++}
++
++private typealias TontohoPluginsEntry = SGItemListUIEntry<TontohoPluginsSection, String, AnyHashable, AnyHashable, AnyHashable, TontohoPluginsAction>
++
++private func tontohoPluginsEntries(presentationData: PresentationData) -> [TontohoPluginsEntry] {
++    let lang = presentationData.strings.baseLanguageCode
++    let id = SGItemListCounter()
++    var entries: [TontohoPluginsEntry] = []
++
++    let installSection = TontohoPluginsSection(rawValue: 0)
++    entries.append(.header(id: id.count, section: installSection, text: i18n("Plugins.Header.Install", lang), badge: nil))
++    entries.append(.action(id: id.count, section: installSection, actionType: .addFile, text: i18n("Plugins.AddFile", lang), kind: .generic))
++    entries.append(.action(id: id.count, section: installSection, actionType: .addClipboard, text: i18n("Plugins.AddClipboard", lang), kind: .generic))
++    entries.append(.action(id: id.count, section: installSection, actionType: .addURL, text: i18n("Plugins.AddURL", lang), kind: .generic))
++    entries.append(.action(id: id.count, section: installSection, actionType: .addExamples, text: i18n("Plugins.AddExamples", lang), kind: .generic))
++    entries.append(.notice(id: id.count, section: installSection, text: i18n("Plugins.Install.Notice", lang)))
++
++    let plugins = SGPluginManager.shared.plugins
++    if plugins.isEmpty {
++        let emptySection = TontohoPluginsSection(rawValue: 1)
++        entries.append(.header(id: id.count, section: emptySection, text: i18n("Plugins.Header.Installed", lang), badge: nil))
++        entries.append(.notice(id: id.count, section: emptySection, text: i18n("Plugins.Empty", lang)))
++    } else {
++        for (index, plugin) in plugins.enumerated() {
++            let section = TontohoPluginsSection(rawValue: Int32(index + 1))
++            if index == 0 {
++                entries.append(.header(id: id.count, section: section, text: i18n("Plugins.Header.Installed", lang), badge: nil))
++            }
++            entries.append(.toggle(id: id.count, section: section, settingName: plugin.id, value: plugin.enabled, text: "\(plugin.name)  \(plugin.version)", enabled: true))
++            var details: [String] = []
++            if !plugin.description.isEmpty {
++                details.append(plugin.description)
++            }
++            if !plugin.author.isEmpty {
++                details.append("— \(plugin.author)")
++            }
++            if !details.isEmpty {
++                entries.append(.notice(id: id.count, section: section, text: details.joined(separator: " ")))
++            }
++            entries.append(.action(id: id.count, section: section, actionType: .showLog(plugin.id), text: i18n("Plugins.Log", lang), kind: .generic))
++            entries.append(.action(id: id.count, section: section, actionType: .delete(plugin.id), text: i18n("Plugins.Delete", lang), kind: .destructive))
++        }
++    }
++
++    return entries
++}
++
++public func sgTontohoPluginsController(context: AccountContext) -> ViewController {
++    let refresh = ValuePromise(true, ignoreRepeated: false)
++
++    let install: (String?, String?) -> Void = { code, error in
++        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++        let lang = presentationData.strings.baseLanguageCode
++        if let error = error {
++            SGPluginUI.showAlert(title: i18n("Plugins.Error", lang), text: error, okTitle: presentationData.strings.Common_OK)
++            return
++        }
++        guard let code = code else {
++            return
++        }
++        do {
++            let info = try SGPluginManager.shared.install(code: code)
++            SGPluginUI.showAlert(title: i18n("Plugins.Installed", lang), text: "\(info.name) \(info.version)", okTitle: presentationData.strings.Common_OK)
++        } catch let error as SGPluginError {
++            SGPluginUI.showAlert(title: i18n("Plugins.Error", lang), text: error.text, okTitle: presentationData.strings.Common_OK)
++        } catch {
++            SGPluginUI.showAlert(title: i18n("Plugins.Error", lang), text: "\(error)", okTitle: presentationData.strings.Common_OK)
++        }
++        refresh.set(true)
++    }
++
++    let arguments = SGItemListArguments<String, AnyHashable, AnyHashable, AnyHashable, TontohoPluginsAction>(
++        context: context,
++        setBoolValue: { pluginId, value in
++            SGPluginManager.shared.setEnabled(id: pluginId, enabled: value)
++            refresh.set(true)
++        },
++        action: { action in
++            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++            let lang = presentationData.strings.baseLanguageCode
++            switch action {
++            case .addFile:
++                SGPluginUI.pickFile(completion: install)
++            case .addClipboard:
++                let text = UIPasteboard.general.string ?? ""
++                install(text, text.isEmpty ? i18n("Plugins.ClipboardEmpty", lang) : nil)
++            case .addURL:
++                SGPluginUI.askText(title: i18n("Plugins.AddURL", lang), placeholder: "https://…", okTitle: presentationData.strings.Common_OK, cancelTitle: presentationData.strings.Common_Cancel, completion: { urlString in
++                    if urlString.isEmpty {
++                        return
++                    }
++                    SGPluginUI.download(urlString: urlString, completion: install)
++                })
++            case .addExamples:
++                var names: [String] = []
++                var errors: [String] = []
++                for code in SGPluginExamples.all {
++                    do {
++                        let info = try SGPluginManager.shared.install(code: code)
++                        names.append(info.name)
++                    } catch let error as SGPluginError {
++                        errors.append(error.text)
++                    } catch {
++                        errors.append("\(error)")
++                    }
++                }
++                let text = (names + errors).joined(separator: "\n")
++                SGPluginUI.showAlert(title: i18n("Plugins.Installed", lang), text: text, okTitle: presentationData.strings.Common_OK)
++                refresh.set(true)
++            case let .showLog(pluginId):
++                let name = SGPluginManager.shared.plugins.first(where: { $0.id == pluginId })?.name
++                SGPluginUI.showResult(title: name, text: SGPluginManager.shared.log(id: pluginId), okTitle: presentationData.strings.Common_OK)
++            case let .delete(pluginId):
++                let name = SGPluginManager.shared.plugins.first(where: { $0.id == pluginId })?.name ?? pluginId
++                SGPluginUI.confirm(title: i18n("Plugins.DeleteConfirm", lang), text: name, confirmTitle: i18n("Plugins.Delete", lang), cancelTitle: presentationData.strings.Common_Cancel, destructive: true, completion: {
++                    SGPluginManager.shared.remove(id: pluginId)
++                    refresh.set(true)
++                })
++            }
++        }
++    )
++
++    let signal = combineLatest(queue: .mainQueue(), refresh.get(), context.sharedContext.presentationData)
++    |> map { _, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let entries = tontohoPluginsEntries(presentationData: presentationData)
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("TontohoMode.Plugins", presentationData.strings.baseLanguageCode)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
++        return (controllerState, (listState, arguments))
++    }
++
++    let controller = ItemListController(context: context, state: signal)
++    return controller
++}
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index 70e47c0150..a18fec2dac 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -324,3 +324,18 @@
+ "Customization.HideAds" = "Disable Ads";
+ "Customization.GhostStatus" = "Ghost Status in Chat List";
+ "Customization.GhostStatus.Notice" = "Shows 👻 next to the Chats title while any ghost mode option is on.";
++"TontohoMode.Plugins" = "Plugins";
++"Plugins.Header.Install" = "INSTALL";
++"Plugins.AddFile" = "Add from File";
++"Plugins.AddClipboard" = "Add from Clipboard";
++"Plugins.AddURL" = "Add from URL";
++"Plugins.AddExamples" = "Install Example Plugins";
++"Plugins.Install.Notice" = "Plugins are JavaScript files. They can change messages you send, add .commands and items to the message menu. Install only plugins you trust.";
++"Plugins.Header.Installed" = "INSTALLED";
++"Plugins.Empty" = "No plugins installed yet.";
++"Plugins.Log" = "Show Log";
++"Plugins.Delete" = "Delete";
++"Plugins.DeleteConfirm" = "Delete plugin?";
++"Plugins.Installed" = "Installed";
++"Plugins.Error" = "Plugin Error";
++"Plugins.ClipboardEmpty" = "The clipboard is empty. Copy the plugin code first.";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index 1e8e943b02..ed8d154a8d 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -315,3 +315,18 @@
+ "Customization.HideAds" = "Отключить рекламу";
+ "Customization.GhostStatus" = "Статус призрака в списке диалогов";
+ "Customization.GhostStatus.Notice" = "Показывает 👻 рядом с заголовком «Чаты», когда включена хотя бы одна опция режима призрака.";
++"TontohoMode.Plugins" = "Плагины";
++"Plugins.Header.Install" = "УСТАНОВКА";
++"Plugins.AddFile" = "Добавить из файла";
++"Plugins.AddClipboard" = "Добавить из буфера обмена";
++"Plugins.AddURL" = "Добавить по ссылке";
++"Plugins.AddExamples" = "Установить примеры плагинов";
++"Plugins.Install.Notice" = "Плагины — это файлы JavaScript. Они могут менять отправляемые сообщения, добавлять .команды и пункты в меню сообщения. Устанавливайте только плагины, которым доверяете.";
++"Plugins.Header.Installed" = "УСТАНОВЛЕННЫЕ";
++"Plugins.Empty" = "Плагинов пока нет.";
++"Plugins.Log" = "Показать лог";
++"Plugins.Delete" = "Удалить";
++"Plugins.DeleteConfirm" = "Удалить плагин?";
++"Plugins.Installed" = "Установлено";
++"Plugins.Error" = "Ошибка плагина";
++"Plugins.ClipboardEmpty" = "Буфер обмена пуст. Сначала скопируйте код плагина.";
+diff --git a/submodules/TelegramUI/BUILD b/submodules/TelegramUI/BUILD
+index 767fd2867d..14952428f5 100644
+--- a/submodules/TelegramUI/BUILD
++++ b/submodules/TelegramUI/BUILD
+@@ -12,6 +12,7 @@ sgdeps = [
+     "//Swiftgram/SGAPIWebSettings:SGAPIWebSettings",
+     "//Swiftgram/SGAppGroupIdentifier:SGAppGroupIdentifier",
+     "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
++    "//Swiftgram/SGPlugins:SGPlugins",
+     "//Swiftgram/SFSafariViewControllerPlus:SFSafariViewControllerPlus",
+     "//Swiftgram/SGLogging:SGLogging",
+     "//Swiftgram/SGStrings:SGStrings",
+diff --git a/submodules/TelegramUI/Sources/ChatController.swift b/submodules/TelegramUI/Sources/ChatController.swift
+index 349cb54d97..02b33e643c 100644
+--- a/submodules/TelegramUI/Sources/ChatController.swift
++++ b/submodules/TelegramUI/Sources/ChatController.swift
+@@ -9284,7 +9284,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
+         }
+     }
+         
+-    func transformEnqueueMessages(_ messages: [EnqueueMessage], silentPosting: Bool, scheduleTime: Int32? = nil, repeatPeriod: Int32? = nil, postpone: Bool = false) -> [EnqueueMessage] {
++    func transformEnqueueMessages(_ sgInputMessages: [EnqueueMessage], silentPosting: Bool, scheduleTime: Int32? = nil, repeatPeriod: Int32? = nil, postpone: Bool = false) -> [EnqueueMessage] {
++        // MARK: tontoho Mode — JavaScript plugins
++        let messages = sgPluginsTransformOutgoing(sgInputMessages, chatId: self.chatLocation.peerId?.toInt64() ?? 0)
++        //
+         var defaultThreadId: Int64?
+         var defaultReplyMessageSubject: EngineMessageReplySubject?
+         switch self.chatLocation {
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+index 226837c5e2..1e44a54784 100644
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -1599,6 +1599,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
+         if let editHistoryAction = sgMakeEditHistoryContextMenuAction(context: context, controllerInteraction: controllerInteraction, chatPresentationInterfaceState: chatPresentationInterfaceState, message: message) {
+             actions.append(editHistoryAction)
+         }
++        actions.append(contentsOf: sgPluginsContextMenuActions(message: message))
+         //
+         
+         var threadId: Int64?
+diff --git a/submodules/TelegramUI/Sources/SGPluginsHooks.swift b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
+new file mode 100644
+index 0000000000..680c260ba7
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
+@@ -0,0 +1,58 @@
++// MARK: tontoho Mode — JavaScript plugin hooks.
++import Foundation
++import UIKit
++import Display
++import TelegramCore
++import TelegramPresentationData
++import AccountContext
++import ContextUI
++import SGPlugins
++
++/// Lets plugins rewrite or cancel outgoing text messages (and media captions).
++func sgPluginsTransformOutgoing(_ messages: [EnqueueMessage], chatId: Int64) -> [EnqueueMessage] {
++    if !SGPluginManager.shared.hasActivePlugins {
++        return messages
++    }
++    var result: [EnqueueMessage] = []
++    for message in messages {
++        guard case let .message(text, attributes, inlineStickers, mediaReference, threadId, replyToMessageId, replyToStoryId, localGroupingKey, correlationId, bubbleUpEmojiOrStickersets) = message, !text.isEmpty else {
++            result.append(message)
++            continue
++        }
++        let newText: String
++        switch SGPluginManager.shared.processOutgoing(text: text, chatId: chatId) {
++        case .unchanged:
++            result.append(message)
++            continue
++        case let .replaced(replacement):
++            newText = replacement
++        case .cancelled:
++            if mediaReference == nil {
++                // Nothing left to send.
++                continue
++            }
++            newText = ""
++        }
++        // Entity ranges refer to the old text.
++        let newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
++        result.append(.message(text: newText, attributes: newAttributes, inlineStickers: inlineStickers, mediaReference: mediaReference, threadId: threadId, replyToMessageId: replyToMessageId, replyToStoryId: replyToStoryId, localGroupingKey: localGroupingKey, correlationId: correlationId, bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets))
++    }
++    return result
++}
++
++/// Message context menu items registered by plugins.
++func sgPluginsContextMenuActions(message: EngineRawMessage) -> [ContextMenuItem] {
++    let pluginActions = SGPluginManager.shared.messageActions()
++    if pluginActions.isEmpty {
++        return []
++    }
++    let pluginMessage = SGPluginMessage(id: message.id.id, chatId: message.id.peerId.toInt64(), text: message.text, outgoing: !message.flags.contains(.Incoming), date: message.timestamp)
++    return pluginActions.map { pluginAction -> ContextMenuItem in
++        return .action(ContextMenuActionItem(text: pluginAction.title, icon: { theme in
++            return generateTintedImage(image: UIImage(systemName: "puzzlepiece.extension"), color: theme.actionSheet.primaryTextColor)
++        }, action: { _, f in
++            f(.default)
++            SGPluginManager.shared.performMessageAction(pluginAction, message: pluginMessage)
++        }))
++    }
++}

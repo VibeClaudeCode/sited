@@ -11,10 +11,14 @@ on:
         description: "Swiftgram/Telegram-iOS commit or branch to build"
         required: true
         default: "ead4834a191063840864ef73aed8713f41c8a485"
+      runner:
+        description: "Runner image (Swiftgram needs Xcode 27.1, which is on xcode-27)"
+        required: true
+        default: "xcode-27"
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 360
 
     steps:
@@ -37,8 +41,27 @@ jobs:
           cd /Users/Shared/telegram-ios
           git checkout "${{ inputs.swiftgram_ref }}"
           git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+          # tontoho-mode.patch first, then the other patches in name order
           git apply --whitespace=nowarn "$GITHUB_WORKSPACE/mod/patches/tontoho-mode.patch"
+          for p in $(ls "$GITHUB_WORKSPACE"/mod/patches/*.patch | sort); do
+            [ "$(basename "$p")" = "tontoho-mode.patch" ] && continue
+            echo "Applying $(basename "$p")"
+            git apply --whitespace=nowarn "$p"
+          done
           git status --short | head -50
+          # The bundled fake provisioning profiles have expired; rules_apple's
+          # plisttool rejects expired profiles. The IPA is re-signed by the user
+          # anyway, so skip that check.
+          PT=build-system/bazel-rules/rules_apple/tools/plisttool/plisttool.py
+          python3 - "$PT" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          old = "if expire and expire < datetime.datetime.now():"
+          assert old in s, "expiration check not found in plisttool"
+          open(p, "w").write(s.replace(old, "if False and expire and expire < datetime.datetime.now():"))
+          print("Disabled provisioning profile expiration check")
+          PY
 
       - name: Select Xcode
         run: |
@@ -64,6 +87,8 @@ jobs:
           python3 - <<'PY'
           import json, os
           c = json.load(open("build-system/appstore-configuration.json"))
+          # Swiftgram requires sg_config (JSON string); "{}" -> built-in defaults.
+          c.setdefault("sg_config", "{}")
           if os.environ.get("TG_API_ID") and os.environ.get("TG_API_HASH"):
               c["api_id"] = os.environ["TG_API_ID"]
               c["api_hash"] = os.environ["TG_API_HASH"]
@@ -88,7 +113,17 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa "$GITHUB_WORKSPACE/out/Swiftgram-Tontoho.ipa"
+          IPA=""
+          for candidate in bazel-bin/Telegram/Swiftgram.ipa bazel-bin/Telegram/Telegram.ipa; do
+            if [ -f "$candidate" ]; then IPA="$candidate"; break; fi
+          done
+          if [ -z "$IPA" ]; then
+            IPA=$(find -L bazel-bin/Telegram bazel-out -maxdepth 6 -name '*.ipa' 2>/dev/null | head -1)
+          fi
+          echo "IPA: $IPA"
+          test -n "$IPA"
+          cp -L "$IPA" "$GITHUB_WORKSPACE/out/Swiftgram-Tontoho.ipa"
+          ls -la "$GITHUB_WORKSPACE/out"
 
       - uses: actions/upload-artifact@v4
         with:
