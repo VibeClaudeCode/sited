@@ -1,0 +1,336 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+index 9952c106d4..55e299e689 100644
+--- a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+@@ -34,6 +34,7 @@ private enum TontohoToggle: String {
+ private enum TontohoLink: String {
+     case customization
+     case plugins
++    case network
+ }
+ 
+ private typealias TontohoEntry = SGItemListUIEntry<TontohoSection, TontohoToggle, AnyHashable, AnyHashable, TontohoLink, AnyHashable>
+@@ -54,6 +55,7 @@ private func tontohoEntries(presentationData: PresentationData) -> [TontohoEntry
+ 
+     entries.append(.disclosure(id: id.count, section: .categories, link: .customization, text: i18n("TontohoMode.Customization", lang)))
+     entries.append(.disclosure(id: id.count, section: .categories, link: .plugins, text: i18n("TontohoMode.Plugins", lang)))
++    entries.append(.disclosure(id: id.count, section: .categories, link: .network, text: i18n("TontohoMode.Network", lang)))
+ 
+     entries.append(.header(id: id.count, section: .ghost, text: i18n("Settings.GhostMode.Header", lang), badge: nil))
+     entries.append(.toggle(id: id.count, section: .ghost, settingName: .ghostAll, value: enabledCount > 0, text: "\(i18n("TontohoMode.Ghost", lang))  \(enabledCount)/\(options.count)", enabled: true))
+@@ -111,6 +113,8 @@ public func sgTontohoModeController(context: AccountContext) -> ViewController {
+                 pushControllerImpl?(sgTontohoCustomizationController(context: context))
+             case .plugins:
+                 pushControllerImpl?(sgTontohoPluginsController(context: context))
++            case .network:
++                pushControllerImpl?(sgTontohoNetworkController(context: context))
+             }
+         }
+     )
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoNetworkController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoNetworkController.swift
+new file mode 100644
+index 0000000000..ee13952310
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoNetworkController.swift
+@@ -0,0 +1,137 @@
++// MARK: tontoho Mode — experimental anti-DPI settings (read by MTProtoKit's MTTcpConnection).
++import SGItemListUI
++import SGStrings
++
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++
++private let antiDpiEnabledKey = "tontohoAntiDpi"
++private let antiDpiModeKey = "tontohoAntiDpiMode"
++private let antiDpiDelayKey = "tontohoAntiDpiDelay"
++
++private let antiDpiModes: [String] = ["split1", "split2", "split32", "multi"]
++private let antiDpiDelays: [Int] = [0, 10, 50, 100, 250]
++
++private enum TontohoNetworkSection: Int32, SGItemListSection {
++    case antiDpi
++    case options
++}
++
++private enum TontohoNetworkToggle: String {
++    case antiDpi
++}
++
++private enum TontohoNetworkSelector: String {
++    case mode
++    case delay
++}
++
++private typealias TontohoNetworkEntry = SGItemListUIEntry<TontohoNetworkSection, TontohoNetworkToggle, AnyHashable, TontohoNetworkSelector, AnyHashable, AnyHashable>
++
++private func currentMode() -> String {
++    let value = UserDefaults.standard.string(forKey: antiDpiModeKey) ?? "split1"
++    return antiDpiModes.contains(value) ? value : "split1"
++}
++
++private func currentDelay() -> Int {
++    if UserDefaults.standard.object(forKey: antiDpiDelayKey) == nil {
++        return 10
++    }
++    return UserDefaults.standard.integer(forKey: antiDpiDelayKey)
++}
++
++private func modeTitle(_ mode: String, _ lang: String) -> String {
++    return i18n("Network.AntiDpi.Mode.\(mode)", lang)
++}
++
++private func delayTitle(_ delay: Int, _ lang: String) -> String {
++    return "\(delay) \(i18n("Network.AntiDpi.Ms", lang))"
++}
++
++private func tontohoNetworkEntries(presentationData: PresentationData) -> [TontohoNetworkEntry] {
++    let lang = presentationData.strings.baseLanguageCode
++    let id = SGItemListCounter()
++    let enabled = UserDefaults.standard.bool(forKey: antiDpiEnabledKey)
++    var entries: [TontohoNetworkEntry] = []
++
++    entries.append(.header(id: id.count, section: .antiDpi, text: i18n("Network.AntiDpi.Header", lang), badge: nil))
++    entries.append(.toggle(id: id.count, section: .antiDpi, settingName: .antiDpi, value: enabled, text: i18n("Network.AntiDpi", lang), enabled: true))
++    entries.append(.notice(id: id.count, section: .antiDpi, text: i18n("Network.AntiDpi.Notice", lang)))
++
++    entries.append(.oneFromManySelector(id: id.count, section: .options, settingName: .mode, text: i18n("Network.AntiDpi.Mode", lang), value: modeTitle(currentMode(), lang), enabled: enabled))
++    entries.append(.oneFromManySelector(id: id.count, section: .options, settingName: .delay, text: i18n("Network.AntiDpi.Delay", lang), value: delayTitle(currentDelay(), lang), enabled: enabled))
++    entries.append(.notice(id: id.count, section: .options, text: i18n("Network.AntiDpi.Options.Notice", lang)))
++
++    return entries
++}
++
++public func sgTontohoNetworkController(context: AccountContext) -> ViewController {
++    let refresh = ValuePromise(true, ignoreRepeated: false)
++    var presentControllerImpl: ((ViewController, ViewControllerPresentationArguments?) -> Void)?
++
++    let arguments = SGItemListArguments<TontohoNetworkToggle, AnyHashable, TontohoNetworkSelector, AnyHashable, AnyHashable>(
++        context: context,
++        setBoolValue: { setting, value in
++            switch setting {
++            case .antiDpi:
++                UserDefaults.standard.set(value, forKey: antiDpiEnabledKey)
++            }
++            refresh.set(true)
++        },
++        setOneFromManyValue: { setting in
++            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++            let lang = presentationData.strings.baseLanguageCode
++            let actionSheet = ActionSheetController(presentationData: presentationData)
++            var items: [ActionSheetItem] = []
++            switch setting {
++            case .mode:
++                let selected = currentMode()
++                for mode in antiDpiModes {
++                    let title = (mode == selected ? "✓ " : "") + modeTitle(mode, lang)
++                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
++                        actionSheet?.dismissAnimated()
++                        UserDefaults.standard.set(mode, forKey: antiDpiModeKey)
++                        refresh.set(true)
++                    }))
++                }
++            case .delay:
++                let selected = currentDelay()
++                for delay in antiDpiDelays {
++                    let title = (delay == selected ? "✓ " : "") + delayTitle(delay, lang)
++                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
++                        actionSheet?.dismissAnimated()
++                        UserDefaults.standard.set(delay, forKey: antiDpiDelayKey)
++                        refresh.set(true)
++                    }))
++                }
++            }
++            actionSheet.setItemGroups([ActionSheetItemGroup(items: items), ActionSheetItemGroup(items: [
++                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
++                    actionSheet?.dismissAnimated()
++                })
++            ])])
++            presentControllerImpl?(actionSheet, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
++        }
++    )
++
++    let signal = combineLatest(queue: .mainQueue(), refresh.get(), context.sharedContext.presentationData)
++    |> map { _, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let entries = tontohoNetworkEntries(presentationData: presentationData)
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("TontohoMode.Network", presentationData.strings.baseLanguageCode)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
++        return (controllerState, (listState, arguments))
++    }
++
++    let controller = ItemListController(context: context, state: signal)
++    presentControllerImpl = { [weak controller] c, a in
++        controller?.present(c, in: .window(.root), with: a)
++    }
++    return controller
++}
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index a18fec2dac..d5d2d1109c 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -339,3 +339,15 @@
+ "Plugins.Installed" = "Installed";
+ "Plugins.Error" = "Plugin Error";
+ "Plugins.ClipboardEmpty" = "The clipboard is empty. Copy the plugin code first.";
++"TontohoMode.Network" = "Network";
++"Network.AntiDpi.Header" = "BYPASS BLOCKING (EXPERIMENTAL)";
++"Network.AntiDpi" = "Anti-DPI";
++"Network.AntiDpi.Notice" = "Sends the start of every Telegram connection in small pieces so that some DPI blocking systems can't recognise it — the same idea as zapret's \"split\", without a VPN or proxy. It can't help if Telegram's servers are blocked by IP address, and it doesn't affect calls. Restart the app after changing these settings.";
++"Network.AntiDpi.Mode" = "Method";
++"Network.AntiDpi.Mode.split1" = "Split after 1 byte";
++"Network.AntiDpi.Mode.split2" = "Split after 2 bytes";
++"Network.AntiDpi.Mode.split32" = "Split after 32 bytes";
++"Network.AntiDpi.Mode.multi" = "Many small pieces";
++"Network.AntiDpi.Delay" = "Delay between pieces";
++"Network.AntiDpi.Ms" = "ms";
++"Network.AntiDpi.Options.Notice" = "If Telegram doesn't connect, try another method or a longer delay. Works only without a proxy and on the standard network engine.";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index ed8d154a8d..9aec881816 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -330,3 +330,15 @@
+ "Plugins.Installed" = "Установлено";
+ "Plugins.Error" = "Ошибка плагина";
+ "Plugins.ClipboardEmpty" = "Буфер обмена пуст. Сначала скопируйте код плагина.";
++"TontohoMode.Network" = "Сеть";
++"Network.AntiDpi.Header" = "ОБХОД БЛОКИРОВОК (ЭКСПЕРИМЕНТ)";
++"Network.AntiDpi" = "Обход DPI";
++"Network.AntiDpi.Notice" = "Начало каждого соединения Telegram отправляется мелкими кусками, чтобы часть систем блокировки (DPI) его не распознала — как режим «split» в zapret, но без VPN и прокси. Не поможет, если серверы Telegram заблокированы по IP-адресам, и не влияет на звонки. После изменения настроек перезапустите приложение.";
++"Network.AntiDpi.Mode" = "Способ";
++"Network.AntiDpi.Mode.split1" = "Разрезать после 1 байта";
++"Network.AntiDpi.Mode.split2" = "Разрезать после 2 байт";
++"Network.AntiDpi.Mode.split32" = "Разрезать после 32 байт";
++"Network.AntiDpi.Mode.multi" = "Много мелких кусков";
++"Network.AntiDpi.Delay" = "Пауза между кусками";
++"Network.AntiDpi.Ms" = "мс";
++"Network.AntiDpi.Options.Notice" = "Если Telegram не подключается, попробуйте другой способ или паузу подлиннее. Работает только без прокси и на стандартном сетевом движке.";
+diff --git a/submodules/MtProtoKit/Sources/MTTcpConnection.m b/submodules/MtProtoKit/Sources/MTTcpConnection.m
+index f2bdb9dd38..06d9de2414 100644
+--- a/submodules/MtProtoKit/Sources/MTTcpConnection.m
++++ b/submodules/MtProtoKit/Sources/MTTcpConnection.m
+@@ -710,6 +710,11 @@ struct ctr_state {
+ @interface MTGcdAsyncSocketTcpConnectionInterface: NSObject<MTTcpConnectionInterface, GCDAsyncSocketDelegate> {
+     GCDAsyncSocket *_socket;
+     __weak id<MTTcpConnectionInterfaceDelegate> _delegate;
++    // MARK: tontoho Mode — experimental anti-DPI: send the start of a connection in small TCP segments.
++    dispatch_queue_t _delegateQueue;
++    bool _antiDpiFirstWriteHandled;
++    bool _antiDpiHolding;
++    NSMutableArray<NSData *> *_antiDpiDeferred;
+ }
+ 
+ @end
+@@ -720,6 +725,8 @@ struct ctr_state {
+     self = [super init];
+     if (self != nil) {
+         _delegate = delegate;
++        _delegateQueue = delegateQueue;
++        _antiDpiDeferred = [[NSMutableArray alloc] init];
+         _socket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:delegateQueue];
+     }
+     return self;
+@@ -742,14 +749,98 @@ struct ctr_state {
+ }
+ 
+ - (void)writeData:(NSData *)data {
++    if (_antiDpiHolding) {
++        [_antiDpiDeferred addObject:data];
++        return;
++    }
++    if (!_antiDpiFirstWriteHandled) {
++        _antiDpiFirstWriteHandled = true;
++        NSMutableArray<NSData *> *chunks = [MTGcdAsyncSocketTcpConnectionInterface antiDpiChunksForFirstData:data];
++        if (chunks.count > 1) {
++            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++            NSInteger delayMs = [defaults objectForKey:@"tontohoAntiDpiDelay"] == nil ? 10 : [defaults integerForKey:@"tontohoAntiDpiDelay"];
++            if (delayMs < 0) {
++                delayMs = 0;
++            }
++            if (delayMs > 500) {
++                delayMs = 500;
++            }
++            if (MTLogEnabled()) {
++                MTLog(@"[tontoho anti-DPI: first write of %d bytes sent as %d parts, delay %d ms]", (int)data.length, (int)chunks.count, (int)delayMs);
++            }
++            _antiDpiHolding = true;
++            [self antiDpiWriteChunks:chunks delayMs:delayMs];
++            return;
++        }
++    }
+     [_socket writeData:data withTimeout:-1.0 tag:0];
+ }
+ 
+++ (NSMutableArray<NSData *> *)antiDpiChunksForFirstData:(NSData *)data {
++    NSMutableArray<NSData *> *chunks = [[NSMutableArray alloc] init];
++    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++    if (![defaults boolForKey:@"tontohoAntiDpi"] || data.length < 4) {
++        [chunks addObject:data];
++        return chunks;
++    }
++    NSString *mode = [defaults stringForKey:@"tontohoAntiDpiMode"];
++    if ([mode isEqualToString:@"multi"]) {
++        // The first 64 bytes (the obfuscation header) in 4-byte pieces, then the rest.
++        NSUInteger headerLength = MIN((NSUInteger)64, data.length);
++        NSUInteger offset = 0;
++        while (offset < headerLength) {
++            NSUInteger partLength = MIN((NSUInteger)4, headerLength - offset);
++            [chunks addObject:[data subdataWithRange:NSMakeRange(offset, partLength)]];
++            offset += partLength;
++        }
++        if (offset < data.length) {
++            [chunks addObject:[data subdataWithRange:NSMakeRange(offset, data.length - offset)]];
++        }
++    } else {
++        NSUInteger splitPosition = 1;
++        if ([mode isEqualToString:@"split2"]) {
++            splitPosition = 2;
++        } else if ([mode isEqualToString:@"split32"]) {
++            splitPosition = 32;
++        }
++        if (splitPosition >= data.length) {
++            splitPosition = 1;
++        }
++        [chunks addObject:[data subdataWithRange:NSMakeRange(0, splitPosition)]];
++        [chunks addObject:[data subdataWithRange:NSMakeRange(splitPosition, data.length - splitPosition)]];
++    }
++    return chunks;
++}
++
++- (void)antiDpiWriteChunks:(NSMutableArray<NSData *> *)chunks delayMs:(NSInteger)delayMs {
++    if (chunks.count == 0) {
++        _antiDpiHolding = false;
++        for (NSData *deferred in _antiDpiDeferred) {
++            [_socket writeData:deferred withTimeout:-1.0 tag:0];
++        }
++        [_antiDpiDeferred removeAllObjects];
++        return;
++    }
++    NSData *chunk = chunks.firstObject;
++    [chunks removeObjectAtIndex:0];
++    [_socket writeData:chunk withTimeout:-1.0 tag:0];
++
++    __weak MTGcdAsyncSocketTcpConnectionInterface *weakSelf = self;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)delayMs * (int64_t)NSEC_PER_MSEC), _delegateQueue, ^{
++        __strong MTGcdAsyncSocketTcpConnectionInterface *strongSelf = weakSelf;
++        if (strongSelf != nil) {
++            [strongSelf antiDpiWriteChunks:chunks delayMs:delayMs];
++        }
++    });
++}
++
+ - (void)readDataToLength:(NSUInteger)length withTimeout:(NSTimeInterval)timeout tag:(long)tag {
+     [_socket readDataToLength:length withTimeout:timeout tag:tag];
+ }
+ 
+ - (void)disconnect {
++    _antiDpiHolding = false;
++    [_antiDpiDeferred removeAllObjects];
+     [_socket disconnect];
+ }
+ 
