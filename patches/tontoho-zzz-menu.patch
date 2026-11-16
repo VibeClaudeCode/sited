@@ -13,7 +13,7 @@ index 0f3ccbb3f9..c0566a553b 100644
          "//visibility:public",
 diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift b/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift
 new file mode 100644
-index 0000000000..e27f8c5a6b
+index 0000000000..a18b24b0f6
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift
 @@ -0,0 +1,230 @@
@@ -131,7 +131,7 @@ index 0000000000..e27f8c5a6b
 +    }
 +
 +    func asyncLayout() -> (_ item: TontohoColorCirclesItem, _ params: ListViewItemLayoutParams, _ neighbors: ItemListNeighbors) -> (ListViewItemNodeLayout, () -> Void) {
-+        return { item, params, neighbors in
++        return { [weak self] item, params, neighbors in
 +            let separatorHeight = UIScreenPixel
 +            let contentSize = CGSize(width: params.width, height: 64.0)
 +            let insets = itemListNeighborsGroupedInsets(neighbors, params)
@@ -531,7 +531,7 @@ index 47ba45620e..49edc3ae92 100644
  
 diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift b/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift
 new file mode 100644
-index 0000000000..84491326ad
+index 0000000000..b97d74ced9
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift
 @@ -0,0 +1,271 @@
@@ -641,7 +641,7 @@ index 0000000000..84491326ad
 +        var currentBackgroundNode = self.backgroundNode
 +        let currentItem = self.item
 +
-+        return { item, params, neighbors in
++        return { [weak self] item, params, neighbors in
 +            if currentBackgroundNode == nil {
 +                currentBackgroundNode = createWallpaperBackgroundNode(context: item.context, forChatDisplay: false)
 +                currentBackgroundNode?.update(wallpaper: item.wallpaper, animated: false)
