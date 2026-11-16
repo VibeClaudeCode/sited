@@ -1,3 +1,811 @@
+diff --git a/Swiftgram/SGSettingsUI/BUILD b/Swiftgram/SGSettingsUI/BUILD
+index 0f3ccbb3f9..c0566a553b 100644
+--- a/Swiftgram/SGSettingsUI/BUILD
++++ b/Swiftgram/SGSettingsUI/BUILD
+@@ -36,6 +36,8 @@ swift_library(
+         "//submodules/AppBundle:AppBundle",
+         "//submodules/TelegramUI/Components/Settings/PeerNameColorScreen",
+         "//submodules/UndoUI:UndoUI",
++        "//submodules/AsyncDisplayKit:AsyncDisplayKit",
++        "//submodules/WallpaperBackgroundNode:WallpaperBackgroundNode",
+     ],
+     visibility = [
+         "//visibility:public",
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift b/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift
+new file mode 100644
+index 0000000000..e27f8c5a6b
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoColorCirclesItem.swift
+@@ -0,0 +1,230 @@
++// MARK: tontoho Mode — a row of colour circles (like the name colour picker).
++import Foundation
++import UIKit
++import Display
++import AsyncDisplayKit
++import SwiftSignalKit
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++
++final class TontohoColorCirclesItem: ListViewItem, ItemListItem {
++    let theme: PresentationTheme
++    let colors: [UIColor]
++    let selectedIndex: Int
++    let enabled: Bool
++    let sectionId: ItemListSectionId
++    let selected: (Int) -> Void
++
++    init(theme: PresentationTheme, colors: [UIColor], selectedIndex: Int, enabled: Bool, sectionId: ItemListSectionId, selected: @escaping (Int) -> Void) {
++        self.theme = theme
++        self.colors = colors
++        self.selectedIndex = selectedIndex
++        self.enabled = enabled
++        self.sectionId = sectionId
++        self.selected = selected
++    }
++
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, neighbors: ListViewItemNeighbors, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        async {
++            let node = TontohoColorCirclesItemNode()
++            let (layout, apply) = node.asyncLayout()(self, params, itemListNeighbors(item: self, topFacet: neighbors.previous?.base(ItemListNeighborFacet.self), bottomFacet: neighbors.next?.base(ItemListNeighborFacet.self)))
++
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++
++            Queue.mainQueue().async {
++                completion(node, {
++                    return (nil, { _ in apply() })
++                })
++            }
++        }
++    }
++
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, neighbors: ListViewItemNeighbors, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            if let nodeValue = node() as? TontohoColorCirclesItemNode {
++                let makeLayout = nodeValue.asyncLayout()
++
++                async {
++                    let (layout, apply) = makeLayout(self, params, itemListNeighbors(item: self, topFacet: neighbors.previous?.base(ItemListNeighborFacet.self), bottomFacet: neighbors.next?.base(ItemListNeighborFacet.self)))
++                    Queue.mainQueue().async {
++                        completion(layout, { _ in
++                            apply()
++                        })
++                    }
++                }
++            }
++        }
++    }
++}
++
++final class TontohoColorCirclesItemNode: ListViewItemNode {
++    private let backgroundNode: ASDisplayNode
++    private let topStripeNode: ASDisplayNode
++    private let bottomStripeNode: ASDisplayNode
++    private let maskNode: ASImageNode
++
++    private var circleNodes: [ASDisplayNode] = []
++    private let ringNode: ASDisplayNode
++    private var circleFrames: [CGRect] = []
++
++    private var item: TontohoColorCirclesItem?
++
++    init() {
++        self.backgroundNode = ASDisplayNode()
++        self.backgroundNode.isLayerBacked = true
++
++        self.topStripeNode = ASDisplayNode()
++        self.topStripeNode.isLayerBacked = true
++
++        self.bottomStripeNode = ASDisplayNode()
++        self.bottomStripeNode.isLayerBacked = true
++
++        self.maskNode = ASImageNode()
++
++        self.ringNode = ASDisplayNode()
++        self.ringNode.isLayerBacked = true
++
++        super.init(layerBacked: false)
++
++        self.addSubnode(self.ringNode)
++    }
++
++    override func didLoad() {
++        super.didLoad()
++        self.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:))))
++    }
++
++    @objc private func tapGesture(_ recognizer: UITapGestureRecognizer) {
++        guard let item = self.item, item.enabled, recognizer.state == .ended else {
++            return
++        }
++        let location = recognizer.location(in: self.view)
++        for (index, frame) in self.circleFrames.enumerated() {
++            if frame.insetBy(dx: -6.0, dy: -10.0).contains(location) {
++                if index != item.selectedIndex {
++                    item.selected(index)
++                }
++                return
++            }
++        }
++    }
++
++    func asyncLayout() -> (_ item: TontohoColorCirclesItem, _ params: ListViewItemLayoutParams, _ neighbors: ItemListNeighbors) -> (ListViewItemNodeLayout, () -> Void) {
++        return { item, params, neighbors in
++            let separatorHeight = UIScreenPixel
++            let contentSize = CGSize(width: params.width, height: 64.0)
++            let insets = itemListNeighborsGroupedInsets(neighbors, params)
++            let layout = ListViewItemNodeLayout(contentSize: contentSize, insets: insets)
++            let layoutSize = layout.size
++
++            return (layout, { [weak self] in
++                guard let strongSelf = self else {
++                    return
++                }
++                strongSelf.item = item
++
++                strongSelf.backgroundNode.backgroundColor = item.theme.list.itemBlocksBackgroundColor
++                strongSelf.topStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++                strongSelf.bottomStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++
++                if strongSelf.backgroundNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.backgroundNode, at: 0)
++                }
++                if strongSelf.topStripeNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.topStripeNode, at: 1)
++                }
++                if strongSelf.bottomStripeNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.bottomStripeNode, at: 2)
++                }
++                if strongSelf.maskNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.maskNode, at: 3)
++                }
++
++                let hasCorners = itemListHasRoundedBlockLayout(params)
++                var hasTopCorners = false
++                var hasBottomCorners = false
++                switch neighbors.top {
++                case .sameSection(false):
++                    strongSelf.topStripeNode.isHidden = true
++                default:
++                    hasTopCorners = true
++                    strongSelf.topStripeNode.isHidden = hasCorners
++                }
++                let bottomStripeInset: CGFloat
++                let bottomStripeOffset: CGFloat
++                switch neighbors.bottom {
++                case .sameSection(false):
++                    bottomStripeInset = params.leftInset + 16.0
++                    bottomStripeOffset = -separatorHeight
++                    strongSelf.bottomStripeNode.isHidden = false
++                default:
++                    bottomStripeInset = 0.0
++                    bottomStripeOffset = 0.0
++                    hasBottomCorners = true
++                    strongSelf.bottomStripeNode.isHidden = hasCorners
++                }
++
++                strongSelf.maskNode.image = hasCorners ? PresentationResourcesItemList.cornersImage(item.theme, top: hasTopCorners, bottom: hasBottomCorners, glass: true) : nil
++
++                strongSelf.backgroundNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: params.width, height: contentSize.height + min(insets.top, separatorHeight) + min(insets.bottom, separatorHeight)))
++                strongSelf.maskNode.frame = strongSelf.backgroundNode.frame.insetBy(dx: params.leftInset, dy: 0.0)
++                strongSelf.topStripeNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: layoutSize.width, height: separatorHeight))
++                strongSelf.bottomStripeNode.frame = CGRect(origin: CGPoint(x: bottomStripeInset, y: contentSize.height + bottomStripeOffset), size: CGSize(width: layoutSize.width - bottomStripeInset, height: separatorHeight))
++
++                // Circles, spread evenly across the row.
++                while strongSelf.circleNodes.count < item.colors.count {
++                    let circle = ASDisplayNode()
++                    circle.isLayerBacked = true
++                    strongSelf.addSubnode(circle)
++                    strongSelf.circleNodes.append(circle)
++                }
++                while strongSelf.circleNodes.count > item.colors.count {
++                    strongSelf.circleNodes.removeLast().removeFromSupernode()
++                }
++
++                let diameter: CGFloat = 34.0
++                let sideInset = params.leftInset + 18.0
++                let availableWidth = params.width - sideInset - params.rightInset - 18.0
++                let count = CGFloat(max(1, item.colors.count))
++                let spacing = count > 1.0 ? max(0.0, (availableWidth - diameter * count) / (count - 1.0)) : 0.0
++                var frames: [CGRect] = []
++                for (index, color) in item.colors.enumerated() {
++                    let frame = CGRect(x: sideInset + CGFloat(index) * (diameter + spacing), y: floor((contentSize.height - diameter) / 2.0), width: diameter, height: diameter)
++                    frames.append(frame)
++                    let circle = strongSelf.circleNodes[index]
++                    circle.frame = frame
++                    circle.backgroundColor = color
++                    circle.cornerRadius = diameter / 2.0
++                    circle.alpha = item.enabled ? 1.0 : 0.35
++                }
++                strongSelf.circleFrames = frames
++
++                if item.selectedIndex >= 0 && item.selectedIndex < frames.count && item.enabled {
++                    let selectedFrame = frames[item.selectedIndex]
++                    strongSelf.ringNode.isHidden = false
++                    strongSelf.ringNode.frame = selectedFrame.insetBy(dx: -4.0, dy: -4.0)
++                    strongSelf.ringNode.cornerRadius = (diameter + 8.0) / 2.0
++                    strongSelf.ringNode.borderWidth = 2.0
++                    strongSelf.ringNode.borderColor = item.colors[item.selectedIndex].cgColor
++                    strongSelf.ringNode.backgroundColor = .clear
++                    // Inner gap so the ring stands apart from the circle.
++                    let selectedCircle = strongSelf.circleNodes[item.selectedIndex]
++                    selectedCircle.frame = selectedFrame.insetBy(dx: 3.0, dy: 3.0)
++                    selectedCircle.cornerRadius = (diameter - 6.0) / 2.0
++                } else {
++                    strongSelf.ringNode.isHidden = true
++                }
++            })
++        }
++    }
++
++    override func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
++        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.4)
++    }
++
++    override func animateRemoved(_ currentTimestamp: Double, duration: Double) {
++        self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift
+index 47ba45620e..49edc3ae92 100644
+--- a/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoCustomizationController.swift
+@@ -1,5 +1,4 @@
+-// MARK: tontoho Mode — "Customization": how kept deleted messages look, ads, ghost status in the chat list.
+-import SGItemListUI
++// MARK: tontoho Mode — Customization: live preview, deleted mark, colour circles, useful options.
+ import SGSimpleSettings
+ import SGStrings
+ 
+@@ -13,49 +12,164 @@ import ItemListUI
+ import PresentationDataUtils
+ import AccountContext
+ 
+-private enum CustomizationSection: Int32, SGItemListSection {
++private enum CustomizationSection: Int32 {
+     case personalization
+     case useful
+ }
+ 
+-private enum CustomizationToggle: String {
+-    case translucent
+-    case hideAds
+-    case ghostStatus
+-}
++private final class CustomizationArguments {
++    let context: AccountContext
++    let setTranslucent: (Bool) -> Void
++    let openMark: () -> Void
++    let selectColor: (Int) -> Void
++    let setHideAds: (Bool) -> Void
++    let setGhostStatus: (Bool) -> Void
+ 
+-private enum CustomizationSelector: String {
+-    case mark
+-    case markColor
++    init(context: AccountContext, setTranslucent: @escaping (Bool) -> Void, openMark: @escaping () -> Void, selectColor: @escaping (Int) -> Void, setHideAds: @escaping (Bool) -> Void, setGhostStatus: @escaping (Bool) -> Void) {
++        self.context = context
++        self.setTranslucent = setTranslucent
++        self.openMark = openMark
++        self.selectColor = selectColor
++        self.setHideAds = setHideAds
++        self.setGhostStatus = setGhostStatus
++    }
+ }
+ 
+-private typealias CustomizationEntry = SGItemListUIEntry<CustomizationSection, CustomizationToggle, AnyHashable, CustomizationSelector, AnyHashable, AnyHashable>
++private enum CustomizationEntry: ItemListNodeEntry {
++    case personalizationHeader(String)
++    case preview(PresentationData, String, String)
++    case translucent(String, Bool)
++    case mark(String, String)
++    case colors([UInt32], Int, Bool)
++    case colorsNotice(String)
++    case usefulHeader(String)
++    case hideAds(String, Bool)
++    case ghostStatus(String, Bool)
++    case ghostStatusNotice(String)
+ 
+-private func markTitle(_ mark: SGSimpleSettings.DeletedMark, _ lang: String) -> String {
+-    return "\(mark.symbol)  \(i18n("Customization.Mark.\(mark.rawValue)", lang))"
++    var section: ItemListSectionId {
++        switch self {
++        case .personalizationHeader, .preview, .translucent, .mark, .colors, .colorsNotice:
++            return CustomizationSection.personalization.rawValue
++        case .usefulHeader, .hideAds, .ghostStatus, .ghostStatusNotice:
++            return CustomizationSection.useful.rawValue
++        }
++    }
++
++    var stableId: Int {
++        switch self {
++        case .personalizationHeader:
++            return 0
++        case .preview:
++            return 1
++        case .translucent:
++            return 2
++        case .mark:
++            return 3
++        case .colors:
++            return 4
++        case .colorsNotice:
++            return 5
++        case .usefulHeader:
++            return 6
++        case .hideAds:
++            return 7
++        case .ghostStatus:
++            return 8
++        case .ghostStatusNotice:
++            return 9
++        }
++    }
++
++    static func ==(lhs: CustomizationEntry, rhs: CustomizationEntry) -> Bool {
++        switch lhs {
++        case let .personalizationHeader(text):
++            if case .personalizationHeader(text) = rhs { return true } else { return false }
++        case let .preview(lhsData, lhsText, lhsKey):
++            if case let .preview(rhsData, rhsText, rhsKey) = rhs, lhsData.theme === rhsData.theme, lhsData.chatWallpaper == rhsData.chatWallpaper, lhsText == rhsText, lhsKey == rhsKey {
++                return true
++            } else {
++                return false
++            }
++        case let .translucent(text, value):
++            if case .translucent(text, value) = rhs { return true } else { return false }
++        case let .mark(text, value):
++            if case .mark(text, value) = rhs { return true } else { return false }
++        case let .colors(colors, selected, enabled):
++            if case .colors(colors, selected, enabled) = rhs { return true } else { return false }
++        case let .colorsNotice(text):
++            if case .colorsNotice(text) = rhs { return true } else { return false }
++        case let .usefulHeader(text):
++            if case .usefulHeader(text) = rhs { return true } else { return false }
++        case let .hideAds(text, value):
++            if case .hideAds(text, value) = rhs { return true } else { return false }
++        case let .ghostStatus(text, value):
++            if case .ghostStatus(text, value) = rhs { return true } else { return false }
++        case let .ghostStatusNotice(text):
++            if case .ghostStatusNotice(text) = rhs { return true } else { return false }
++        }
++    }
++
++    static func <(lhs: CustomizationEntry, rhs: CustomizationEntry) -> Bool {
++        return lhs.stableId < rhs.stableId
++    }
++
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        let arguments = arguments as! CustomizationArguments
++        switch self {
++        case let .personalizationHeader(text), let .usefulHeader(text):
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
++        case let .preview(data, text, key):
++            return TontohoDeletedPreviewItem(context: arguments.context, theme: data.theme, strings: data.strings, sectionId: self.section, fontSize: data.chatFontSize, chatBubbleCorners: data.chatBubbleCorners, wallpaper: data.chatWallpaper, dateTimeFormat: data.dateTimeFormat, nameDisplayOrder: data.nameDisplayOrder, text: text, key: key)
++        case let .translucent(text, value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, enabled: true, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.setTranslucent(value)
++            })
++        case let .mark(text, symbol):
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: text, label: symbol, sectionId: self.section, style: .blocks, action: {
++                arguments.openMark()
++            })
++        case let .colors(colors, selected, enabled):
++            return TontohoColorCirclesItem(theme: presentationData.theme, colors: colors.map { UIColor(rgb: $0) }, selectedIndex: selected, enabled: enabled, sectionId: self.section, selected: { index in
++                arguments.selectColor(index)
++            })
++        case let .colorsNotice(text), let .ghostStatusNotice(text):
++            return ItemListTextItem(presentationData: presentationData, text: .markdown(text), sectionId: self.section)
++        case let .hideAds(text, value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, enabled: true, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.setHideAds(value)
++            })
++        case let .ghostStatus(text, value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, enabled: true, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.setGhostStatus(value)
++            })
++        }
++    }
+ }
+ 
+-private func colorTitle(_ color: SGSimpleSettings.DeletedMarkColor, _ lang: String) -> String {
+-    return i18n("Customization.Color.\(color.rawValue)", lang)
++private func markTitle(_ mark: SGSimpleSettings.DeletedMark, _ lang: String) -> String {
++    return i18n("Customization.Mark.\(mark.rawValue)", lang)
+ }
+ 
+ private func customizationEntries(presentationData: PresentationData) -> [CustomizationEntry] {
+     let lang = presentationData.strings.baseLanguageCode
+     let s = SGSimpleSettings.shared
+-    let id = SGItemListCounter()
+-    var entries: [CustomizationEntry] = []
++    let colors = SGSimpleSettings.DeletedMarkColor.allCases
++    let selectedColor = colors.firstIndex(of: s.deletedMarkColorEnum) ?? 0
++    let previewKey = "\(s.deletedMark)|\(s.deletedMarkColor)|\(s.deletedTranslucent)|\(s.keepDeletedMessages)"
+ 
+-    entries.append(.header(id: id.count, section: .personalization, text: i18n("Customization.Personalization.Header", lang), badge: nil))
+-    entries.append(.toggle(id: id.count, section: .personalization, settingName: .translucent, value: s.deletedTranslucent, text: i18n("Customization.Translucent", lang), enabled: true))
+-    entries.append(.oneFromManySelector(id: id.count, section: .personalization, settingName: .mark, text: i18n("Customization.Mark", lang), value: markTitle(s.deletedMarkEnum, lang), enabled: true))
+-    entries.append(.oneFromManySelector(id: id.count, section: .personalization, settingName: .markColor, text: i18n("Customization.MarkColor", lang), value: colorTitle(s.deletedMarkColorEnum, lang), enabled: s.deletedMarkEnum.isTintable))
+-    entries.append(.notice(id: id.count, section: .personalization, text: i18n("Customization.MarkColor.Notice", lang)))
+-
+-    entries.append(.header(id: id.count, section: .useful, text: i18n("Customization.Useful.Header", lang), badge: nil))
+-    entries.append(.toggle(id: id.count, section: .useful, settingName: .hideAds, value: s.hideSponsoredMessages, text: i18n("Customization.HideAds", lang), enabled: true))
+-    entries.append(.toggle(id: id.count, section: .useful, settingName: .ghostStatus, value: s.ghostStatusInChatList, text: i18n("Customization.GhostStatus", lang), enabled: true))
+-    entries.append(.notice(id: id.count, section: .useful, text: i18n("Customization.GhostStatus.Notice", lang)))
++    var entries: [CustomizationEntry] = []
++    entries.append(.personalizationHeader(i18n("Customization.Personalization.Header", lang)))
++    entries.append(.preview(presentationData, i18n("Customization.Preview.Text", lang), previewKey))
++    entries.append(.translucent(i18n("Customization.Translucent", lang), s.deletedTranslucent))
++    entries.append(.mark(i18n("Customization.Mark", lang), s.deletedMarkEnum.symbol))
++    entries.append(.colors(colors.map { $0.rgb }, selectedColor, s.deletedMarkEnum.isTintable))
++    entries.append(.colorsNotice(i18n("Customization.MarkColor.Notice", lang)))
+ 
++    entries.append(.usefulHeader(i18n("Customization.Useful.Header", lang)))
++    entries.append(.hideAds(i18n("Customization.HideAds", lang), s.hideSponsoredMessages))
++    entries.append(.ghostStatus(i18n("Customization.GhostStatus", lang), s.ghostStatusInChatList))
++    entries.append(.ghostStatusNotice(i18n("Customization.GhostStatus.Notice", lang)))
+     return entries
+ }
+ 
+@@ -63,45 +177,25 @@ public func sgTontohoCustomizationController(context: AccountContext) -> ViewCon
+     let refresh = ValuePromise(true, ignoreRepeated: false)
+     var presentControllerImpl: ((ViewController, ViewControllerPresentationArguments?) -> Void)?
+ 
+-    let arguments = SGItemListArguments<CustomizationToggle, AnyHashable, CustomizationSelector, AnyHashable, AnyHashable>(
++    let arguments = CustomizationArguments(
+         context: context,
+-        setBoolValue: { setting, value in
+-            let s = SGSimpleSettings.shared
+-            switch setting {
+-            case .translucent:
+-                s.deletedTranslucent = value
+-            case .hideAds:
+-                s.hideSponsoredMessages = value
+-            case .ghostStatus:
+-                s.ghostStatusInChatList = value
+-            }
++        setTranslucent: { value in
++            SGSimpleSettings.shared.deletedTranslucent = value
+             refresh.set(true)
+         },
+-        setOneFromManyValue: { setting in
++        openMark: {
+             let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+             let lang = presentationData.strings.baseLanguageCode
+-            let s = SGSimpleSettings.shared
++            let current = SGSimpleSettings.shared.deletedMarkEnum
+             let actionSheet = ActionSheetController(presentationData: presentationData)
+             var items: [ActionSheetItem] = []
+-            switch setting {
+-            case .mark:
+-                for mark in SGSimpleSettings.DeletedMark.allCases {
+-                    let title = (s.deletedMarkEnum == mark ? "✓ " : "") + markTitle(mark, lang)
+-                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
+-                        actionSheet?.dismissAnimated()
+-                        SGSimpleSettings.shared.deletedMark = mark.rawValue
+-                        refresh.set(true)
+-                    }))
+-                }
+-            case .markColor:
+-                for color in SGSimpleSettings.DeletedMarkColor.allCases {
+-                    let title = (s.deletedMarkColorEnum == color ? "✓ " : "") + colorTitle(color, lang)
+-                    items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
+-                        actionSheet?.dismissAnimated()
+-                        SGSimpleSettings.shared.deletedMarkColor = color.rawValue
+-                        refresh.set(true)
+-                    }))
+-                }
++            for mark in SGSimpleSettings.DeletedMark.allCases {
++                let title = "\(mark.symbol)  " + markTitle(mark, lang) + (mark == current ? "  ✓" : "")
++                items.append(ActionSheetButtonItem(title: title, color: .accent, action: { [weak actionSheet] in
++                    actionSheet?.dismissAnimated()
++                    SGSimpleSettings.shared.deletedMark = mark.rawValue
++                    refresh.set(true)
++                }))
+             }
+             actionSheet.setItemGroups([ActionSheetItemGroup(items: items), ActionSheetItemGroup(items: [
+                 ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+@@ -109,6 +203,21 @@ public func sgTontohoCustomizationController(context: AccountContext) -> ViewCon
+                 })
+             ])])
+             presentControllerImpl?(actionSheet, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
++        },
++        selectColor: { index in
++            let colors = SGSimpleSettings.DeletedMarkColor.allCases
++            if index >= 0 && index < colors.count {
++                SGSimpleSettings.shared.deletedMarkColor = colors[index].rawValue
++                refresh.set(true)
++            }
++        },
++        setHideAds: { value in
++            SGSimpleSettings.shared.hideSponsoredMessages = value
++            refresh.set(true)
++        },
++        setGhostStatus: { value in
++            SGSimpleSettings.shared.ghostStatusInChatList = value
++            refresh.set(true)
+         }
+     )
+ 
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift b/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift
+new file mode 100644
+index 0000000000..84491326ad
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoDeletedPreviewItem.swift
+@@ -0,0 +1,271 @@
++// MARK: tontoho Mode — live chat preview of a kept deleted message (based on PeerNameColorChatPreviewItem).
++import Foundation
++import UIKit
++import Display
++import AsyncDisplayKit
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import TelegramUIPreferences
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++import WallpaperBackgroundNode
++
++final class TontohoDeletedPreviewItem: ListViewItem, ItemListItem {
++    let context: AccountContext
++    let theme: PresentationTheme
++    let strings: PresentationStrings
++    let sectionId: ItemListSectionId
++    let fontSize: PresentationFontSize
++    let chatBubbleCorners: PresentationChatBubbleCorners
++    let wallpaper: TelegramWallpaper
++    let dateTimeFormat: PresentationDateTimeFormat
++    let nameDisplayOrder: PresentationPersonNameOrder
++    let text: String
++    /// Changes whenever a setting that affects the look changes, so the preview is redrawn.
++    let key: String
++
++    init(context: AccountContext, theme: PresentationTheme, strings: PresentationStrings, sectionId: ItemListSectionId, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, wallpaper: TelegramWallpaper, dateTimeFormat: PresentationDateTimeFormat, nameDisplayOrder: PresentationPersonNameOrder, text: String, key: String) {
++        self.context = context
++        self.theme = theme
++        self.strings = strings
++        self.sectionId = sectionId
++        self.fontSize = fontSize
++        self.chatBubbleCorners = chatBubbleCorners
++        self.wallpaper = wallpaper
++        self.dateTimeFormat = dateTimeFormat
++        self.nameDisplayOrder = nameDisplayOrder
++        self.text = text
++        self.key = key
++    }
++
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, neighbors: ListViewItemNeighbors, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        Queue.mainQueue().async {
++            let node = TontohoDeletedPreviewItemNode()
++            let (layout, apply) = node.asyncLayout()(self, params, itemListNeighbors(item: self, topFacet: neighbors.previous?.base(ItemListNeighborFacet.self), bottomFacet: neighbors.next?.base(ItemListNeighborFacet.self)))
++
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++
++            completion(node, {
++                return (nil, { _ in apply() })
++            })
++        }
++    }
++
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, neighbors: ListViewItemNeighbors, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            if let nodeValue = node() as? TontohoDeletedPreviewItemNode {
++                let makeLayout = nodeValue.asyncLayout()
++
++                let (layout, apply) = makeLayout(self, params, itemListNeighbors(item: self, topFacet: neighbors.previous?.base(ItemListNeighborFacet.self), bottomFacet: neighbors.next?.base(ItemListNeighborFacet.self)))
++                completion(layout, { _ in
++                    apply()
++                })
++            }
++        }
++    }
++}
++
++final class TontohoDeletedPreviewItemNode: ListViewItemNode {
++    private var backgroundNode: WallpaperBackgroundNode?
++    private let topStripeNode: ASDisplayNode
++    private let bottomStripeNode: ASDisplayNode
++    private let maskNode: ASImageNode
++
++    private let containerNode: ASDisplayNode
++    private var messageNodes: [ListViewItemNode]?
++
++    private var item: TontohoDeletedPreviewItem?
++
++    init() {
++        self.topStripeNode = ASDisplayNode()
++        self.topStripeNode.isLayerBacked = true
++
++        self.bottomStripeNode = ASDisplayNode()
++        self.bottomStripeNode.isLayerBacked = true
++
++        self.maskNode = ASImageNode()
++
++        self.containerNode = ASDisplayNode()
++        self.containerNode.subnodeTransform = CATransform3DMakeRotation(CGFloat.pi, 0.0, 0.0, 1.0)
++
++        super.init(layerBacked: false)
++
++        self.clipsToBounds = true
++        self.isUserInteractionEnabled = false
++
++        self.addSubnode(self.containerNode)
++    }
++
++    func asyncLayout() -> (_ item: TontohoDeletedPreviewItem, _ params: ListViewItemLayoutParams, _ neighbors: ItemListNeighbors) -> (ListViewItemNodeLayout, () -> Void) {
++        let currentNodes = self.messageNodes
++        var currentBackgroundNode = self.backgroundNode
++        let currentItem = self.item
++
++        return { item, params, neighbors in
++            if currentBackgroundNode == nil {
++                currentBackgroundNode = createWallpaperBackgroundNode(context: item.context, forChatDisplay: false)
++                currentBackgroundNode?.update(wallpaper: item.wallpaper, animated: false)
++                currentBackgroundNode?.updateBubbleTheme(bubbleTheme: item.theme, bubbleCorners: item.chatBubbleCorners)
++            }
++
++            var insets: UIEdgeInsets
++            let separatorHeight = UIScreenPixel
++
++            let chatPeerId = EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(1))
++            let authorPeerId = EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(2))
++
++            var peers = EngineSimpleDictionary<EnginePeer.Id, EngineRawPeer>()
++            peers[authorPeerId] = TelegramUser(id: authorPeerId, accessHash: nil, firstName: "tontoho", lastName: "", username: nil, phone: nil, photo: [], botInfo: nil, restrictionInfo: nil, flags: [], emojiStatus: nil, usernames: [], storiesHidden: nil, nameColor: nil, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, subscriberCount: nil, verificationIconFileId: nil)
++
++            let message = EngineRawMessage(stableId: 1, stableVersion: 0, id: EngineMessage.Id(peerId: chatPeerId, namespace: 0, id: 1), globallyUniqueId: nil, groupingKey: nil, groupInfo: nil, threadId: nil, timestamp: 75600, flags: [.Incoming], tags: [], globalTags: [], localTags: [], customTags: [], forwardInfo: nil, author: peers[authorPeerId], text: item.text, attributes: [SGDeletedMessageAttribute(date: 75600)], media: [], peers: peers, associatedMessages: EngineSimpleDictionary(), associatedMessageIds: [], associatedMedia: [:], associatedThreadInfo: nil, associatedStories: [:])
++
++            var items: [ListViewItem] = []
++            items.append(item.context.sharedContext.makeChatMessagePreviewItem(context: item.context, messages: [EngineMessage(message)], theme: item.theme, strings: item.strings, wallpaper: item.wallpaper, fontSize: item.fontSize, chatBubbleCorners: item.chatBubbleCorners, dateTimeFormat: item.dateTimeFormat, nameOrder: item.nameDisplayOrder, forcedResourceStatus: nil, tapMessage: nil, clickThroughMessage: nil, backgroundNode: currentBackgroundNode, availableReactions: nil, accountPeer: nil, isCentered: false, isPreview: true, isStandalone: false, rank: nil, rankRole: nil, isGiftMessageComposerPreview: false, activateGiftMessageInput: nil))
++
++            var nodes: [ListViewItemNode] = []
++            if let messageNodes = currentNodes, messageNodes.count == items.count {
++                nodes = messageNodes
++                for i in 0 ..< items.count {
++                    let itemNode = messageNodes[i]
++                    items[i].updateNode(async: { $0() }, node: {
++                        return itemNode
++                    }, params: params, neighbors: ListViewItemNeighbors(previous: nil, next: nil), animation: .None, completion: { (layout, apply) in
++                        let nodeFrame = CGRect(origin: itemNode.frame.origin, size: CGSize(width: layout.size.width, height: layout.size.height))
++
++                        itemNode.contentSize = layout.contentSize
++                        itemNode.insets = layout.insets
++                        itemNode.frame = nodeFrame
++                        itemNode.isUserInteractionEnabled = false
++
++                        Queue.mainQueue().after(0.01) {
++                            apply(ListViewItemApply())
++                        }
++                    })
++                }
++            } else {
++                var messageNodes: [ListViewItemNode] = []
++                for i in 0 ..< items.count {
++                    var itemNode: ListViewItemNode?
++                    items[i].nodeConfiguredForParams(async: { $0() }, params: params, synchronousLoads: false, neighbors: ListViewItemNeighbors(previous: nil, next: nil), completion: { node, apply in
++                        itemNode = node
++                        apply().1(ListViewItemApply())
++                    })
++                    if let itemNode = itemNode {
++                        itemNode.isUserInteractionEnabled = false
++                        messageNodes.append(itemNode)
++                    }
++                }
++                nodes = messageNodes
++            }
++
++            var contentSize = CGSize(width: params.width, height: 8.0 + 8.0)
++            for node in nodes {
++                contentSize.height += node.frame.size.height
++            }
++            insets = itemListNeighborsGroupedInsets(neighbors, params)
++            if params.width <= 320.0 {
++                insets.top = 0.0
++            }
++
++            let layout = ListViewItemNodeLayout(contentSize: contentSize, insets: insets)
++            let layoutSize = layout.size
++
++            return (layout, { [weak self] in
++                guard let strongSelf = self else {
++                    return
++                }
++                strongSelf.item = item
++
++                if let currentBackgroundNode = currentBackgroundNode {
++                    currentBackgroundNode.update(wallpaper: item.wallpaper, animated: false)
++                    currentBackgroundNode.updateBubbleTheme(bubbleTheme: item.theme, bubbleCorners: item.chatBubbleCorners)
++                }
++
++                strongSelf.containerNode.frame = CGRect(origin: CGPoint(), size: contentSize)
++
++                if let currentItem = currentItem, currentItem.key != item.key || currentItem.theme !== item.theme {
++                    if let snapshot = strongSelf.view.snapshotView(afterScreenUpdates: false) {
++                        snapshot.frame = CGRect(origin: CGPoint(x: 0.0, y: -insets.top), size: snapshot.frame.size)
++                        strongSelf.view.addSubview(snapshot)
++                        snapshot.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, delay: 0.0, removeOnCompletion: false, completion: { _ in
++                            snapshot.removeFromSuperview()
++                        })
++                    }
++                }
++
++                strongSelf.messageNodes = nodes
++                var topOffset: CGFloat = 8.0
++                for node in nodes {
++                    if node.supernode == nil {
++                        strongSelf.containerNode.addSubnode(node)
++                    }
++                    node.updateFrame(CGRect(origin: CGPoint(x: 0.0, y: topOffset), size: node.frame.size), within: layoutSize)
++                    topOffset += node.frame.size.height
++                }
++
++                if let currentBackgroundNode = currentBackgroundNode, strongSelf.backgroundNode !== currentBackgroundNode {
++                    strongSelf.backgroundNode = currentBackgroundNode
++                    strongSelf.insertSubnode(currentBackgroundNode, at: 0)
++                }
++
++                strongSelf.topStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++                strongSelf.bottomStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++
++                if strongSelf.topStripeNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.topStripeNode, at: 1)
++                }
++                if strongSelf.bottomStripeNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.bottomStripeNode, at: 2)
++                }
++                if strongSelf.maskNode.supernode == nil {
++                    strongSelf.insertSubnode(strongSelf.maskNode, at: 3)
++                }
++
++                let hasCorners = itemListHasRoundedBlockLayout(params)
++                var hasTopCorners = false
++                var hasBottomCorners = false
++                switch neighbors.top {
++                case .sameSection(false):
++                    strongSelf.topStripeNode.isHidden = true
++                default:
++                    hasTopCorners = true
++                    strongSelf.topStripeNode.isHidden = hasCorners
++                }
++                let bottomStripeOffset: CGFloat
++                switch neighbors.bottom {
++                case .sameSection(false):
++                    bottomStripeOffset = -separatorHeight
++                    strongSelf.bottomStripeNode.isHidden = false
++                default:
++                    bottomStripeOffset = 0.0
++                    hasBottomCorners = true
++                    strongSelf.bottomStripeNode.isHidden = hasCorners
++                }
++
++                strongSelf.maskNode.image = hasCorners ? PresentationResourcesItemList.cornersImage(item.theme, top: hasTopCorners, bottom: hasBottomCorners, glass: true) : nil
++
++                strongSelf.topStripeNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: layoutSize.width, height: separatorHeight))
++                strongSelf.bottomStripeNode.frame = CGRect(origin: CGPoint(x: 0.0, y: contentSize.height + bottomStripeOffset), size: CGSize(width: layoutSize.width, height: separatorHeight))
++
++                let backgroundFrame = CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: params.width, height: contentSize.height + min(insets.top, separatorHeight) + min(insets.bottom, separatorHeight)))
++
++                if let backgroundNode = strongSelf.backgroundNode {
++                    backgroundNode.frame = backgroundFrame
++                    backgroundNode.updateLayout(size: backgroundNode.bounds.size, displayMode: .aspectFill, transition: .immediate)
++                }
++                strongSelf.maskNode.frame = backgroundFrame.inset(by: UIEdgeInsets(top: 0.0, left: params.leftInset, bottom: 0.0, right: params.rightInset))
++            })
++        }
++    }
++
++    override func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
++        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.4)
++    }
++
++    override func animateRemoved(_ currentTimestamp: Double, duration: Double) {
++        self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
++    }
++}
 diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoMenuController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoMenuController.swift
 new file mode 100644
 index 0000000000..b81c7a592d
@@ -110,22 +918,24 @@ index 55e299e689..07cddd3751 100644
          return (controllerState, (listState, arguments))
      }
 diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
-index d5d2d1109c..0ad316d7f3 100644
+index d5d2d1109c..63c012ec25 100644
 --- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
-@@ -351,3 +351,5 @@
+@@ -351,3 +351,6 @@
  "Network.AntiDpi.Delay" = "Delay between pieces";
  "Network.AntiDpi.Ms" = "ms";
  "Network.AntiDpi.Options.Notice" = "If Telegram doesn't connect, try another method or a longer delay. Works only without a proxy and on the standard network engine.";
 +"TontohoMode.Settings" = "Mod Settings";
 +"TontohoMode.Menu.Notice" = "Mod Settings — ghost mode and keeping deleted messages. Network — experimental blocking bypass.";
++"Customization.Preview.Text" = "Do they really have to change the interface with every update..?";
 diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
-index 9aec881816..c122805b1f 100644
+index 9aec881816..c6415b7a1e 100644
 --- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
-@@ -342,3 +342,5 @@
+@@ -342,3 +342,6 @@
  "Network.AntiDpi.Delay" = "Пауза между кусками";
  "Network.AntiDpi.Ms" = "мс";
  "Network.AntiDpi.Options.Notice" = "Если Telegram не подключается, попробуйте другой способ или паузу подлиннее. Работает только без прокси и на стандартном сетевом движке.";
 +"TontohoMode.Settings" = "Настройки мода";
 +"TontohoMode.Menu.Notice" = "Настройки мода — режим призрака и сохранение удалённых сообщений. Сеть — экспериментальный обход блокировок.";
++"Customization.Preview.Text" = "им что, обязательно менять интерфейс каждое обновление..?";
