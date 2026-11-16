@@ -11,6 +11,11 @@ on:
         description: "Swiftgram/Telegram-iOS commit or branch to build"
         required: true
         default: "ead4834a191063840864ef73aed8713f41c8a485"
+      apply_patches:
+        description: "Apply the mod patches (turn off to build plain Swiftgram for comparison)"
+        type: boolean
+        required: true
+        default: true
       runner:
         description: "Runner image (Swiftgram needs Xcode 27.1, which is on xcode-27)"
         required: true
@@ -41,6 +46,9 @@ jobs:
           cd /Users/Shared/telegram-ios
           git checkout "${{ inputs.swiftgram_ref }}"
           git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+          if [ "${{ inputs.apply_patches }}" = "false" ]; then
+            echo "::warning::Building plain Swiftgram without the mod patches"
+          else
           # tontoho-mode.patch first, then the other patches in name order
           git apply --whitespace=nowarn "$GITHUB_WORKSPACE/mod/patches/tontoho-mode.patch"
           for p in $(ls "$GITHUB_WORKSPACE"/mod/patches/*.patch | sort); do
@@ -48,6 +56,7 @@ jobs:
             echo "Applying $(basename "$p")"
             git apply --whitespace=nowarn "$p"
           done
+          fi
           git status --short | head -50
           # The bundled fake provisioning profiles have expired; rules_apple's
           # plisttool rejects expired profiles. The IPA is re-signed by the user
@@ -127,6 +136,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Swiftgram-Tontoho-ipa
+          name: ${{ inputs.apply_patches == false && 'Swiftgram-plain-ipa' || 'Swiftgram-Tontoho-ipa' }}
           path: out/Swiftgram-Tontoho.ipa
           retention-days: 14
