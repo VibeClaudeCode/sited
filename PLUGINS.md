@@ -39,7 +39,10 @@
 | `tg.httpGet(url, cb)` | GET-запрос; `cb(error, body)`, где `error` равен `null` при успехе. |
 | `tg.storage.get(key)` / `set(key, value)` / `remove(key)` | Хранилище строк, своё у каждого плагина. Сохраняется между запусками. |
 | `tg.log(...)`, `console.log(...)` | Запись в лог плагина (Плагины → Показать лог). |
-| `tg.version` | Версия API (`"1.0"`). |
+| `tg.sendMessage(chatId, text[, cb])` | Отправить сообщение в чат. `cb(error)` — `error` равен `null` при успехе. |
+| `tg.messages(chatId, limit, cb)` | Последние сообщения чата (до 100). `cb(error, list)`, где `list` — массив `message` (плюс `fromId`, `fromMe`). |
+| `tg.api(method, params, cb)` | Данные Telegram: `"getMe"` (твой профиль), `"getChat"` с `{ chatId }`, `"resolveUsername"` с `{ username }`. `cb(error, result)`, где `result = { id, name, type, username }`. |
+| `tg.version` | Версия API (`"1.1"`). |
 
 ## Форматирование
 
@@ -107,8 +110,12 @@ tg.addMessageAction("Мой IP", function () {
 | Templates | `.tset имя текст`, `.t имя`, `.tdel имя`, `.tlist` |
 | Message Info | в меню — ID, чат, дата, число символов и слов |
 | Bold Messages | каждое отправленное сообщение — **жирным** |
+| API Demo | `.me` — твой профиль, `.last` — последние 5 сообщений чата; в меню — «Reply 👍» и «Who is it» |
 
 ## Ограничения
+
+- `tg.api` — это не прямой доступ к любому методу Telegram API, а набор готовых методов (`getMe`, `getChat`, `resolveUsername`). Новые методы добавляются в приложение и требуют новой сборки.
+- `tg.sendMessage` отправляет сообщения от твоего имени — не делай массовые рассылки, Telegram за это ограничивает аккаунт.
 
 - `onOutgoingMessage` и команды работают синхронно. Сетевой ответ (`tg.httpGet`) нельзя подставить в отправляемое сообщение — его можно только показать через `tg.alert` или скопировать.
 - Если плагин зависнет в бесконечном цикле, зависнет и приложение. Удали такой плагин.

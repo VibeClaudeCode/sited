@@ -1,0 +1,353 @@
+diff --git a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
+index 577298c878..d659bd7f74 100644
+--- a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
++++ b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
+@@ -2,7 +2,7 @@
+ import Foundation
+ 
+ public enum SGPluginExamples {
+-    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll]
++    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll, apiDemo]
+ 
+     static let textTools = #"""
+ // @id text-tools
+@@ -171,5 +171,40 @@ tg.addMessageAction("Message info", function (message) {
+ tg.onOutgoingMessage(function (text) {
+   return tg.formatAll(text, "bold");
+ });
++"""#
++
++    static let apiDemo = #"""
++// @id api-demo
++// @name API Demo
++// @version 1.0
++// @author tontoho
++// @description .me — your profile; .last — last 5 messages of this chat; message menu: Reply 👍 and Who is it.
++
++tg.addCommand("me", function () {
++  tg.api("getMe", {}, function (error, me) {
++    tg.alert(error ? "Error: " + error : me.name + (me.username ? " (@" + me.username + ")" : "") + "\nID: " + me.id, "Me");
++  });
++  return null;
++});
++
++tg.addCommand("last", function (args, chat) {
++  tg.messages(chat.chatId, 5, function (error, list) {
++    if (error) { tg.alert("Error: " + error, "Last messages"); return; }
++    tg.alert(list.map(function (m) { return (m.outgoing ? "→ " : "← ") + (m.text || "[media]"); }).join("\n"), "Last messages");
++  });
++  return null;
++});
++
++tg.addMessageAction("Reply 👍", function (message) {
++  tg.sendMessage(message.chatId, "👍", function (error) {
++    if (error) tg.alert("Error: " + error, "API Demo");
++  });
++});
++
++tg.addMessageAction("Who is it", function (message) {
++  tg.api("getChat", { chatId: message.chatId }, function (error, chat) {
++    tg.alert(error ? "Error: " + error : chat.name + " — " + chat.type + (chat.username ? " (@" + chat.username + ")" : ""), "Chat");
++  });
++});
+ """#
+ }
+diff --git a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
+index ffb1bbe977..e6ebbb476d 100644
+--- a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
++++ b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
+@@ -109,10 +109,25 @@ private final class SGLoadedPlugin {
+     }
+ }
+ 
++/// Telegram functions the app provides to plugins (set from TelegramUI once an account is ready).
++public final class SGPluginHost {
++    /// (chatId, text, completion(error))
++    public var sendMessage: ((Int64, String, @escaping (String?) -> Void) -> Void)?
++    /// (chatId, limit, completion(messages, error)); messages are plain dictionaries.
++    public var getMessages: ((Int64, Int, @escaping ([[String: Any]]?, String?) -> Void) -> Void)?
++    /// (method, params, completion(result, error))
++    public var apiCall: ((String, [String: Any], @escaping (Any?, String?) -> Void) -> Void)?
++
++    init() {
++    }
++}
++
+ public final class SGPluginManager {
+     public static let shared = SGPluginManager()
+ 
+-    public static let apiVersion = "1.0"
++    public let host = SGPluginHost()
++
++    public static let apiVersion = "1.1"
+ 
+     private let listKey = "sg.tontoho.plugins.list"
+     private let storageKeyPrefix = "sg.tontoho.plugins.storage."
+@@ -497,6 +512,74 @@ public final class SGPluginManager {
+             dict[key] = nil
+             UserDefaults.standard.set(dict, forKey: storageKey)
+         }
++        let sendMessage: @convention(block) (JSValue, String, JSValue) -> Void = { [weak self] chatIdValue, text, callback in
++            let finish: (String?) -> Void = { error in
++                DispatchQueue.main.async {
++                    guard let self = self, self.loaded[pluginId] != nil, !callback.isUndefined, !callback.isNull else {
++                        return
++                    }
++                    let errorArgument: Any = error.map { $0 as Any } ?? NSNull()
++                    callback.call(withArguments: [errorArgument])
++                }
++            }
++            guard let chatId = SGPluginManager.int64(from: chatIdValue) else {
++                finish("invalid chatId")
++                return
++            }
++            guard let impl = self?.host.sendMessage else {
++                finish("not available")
++                return
++            }
++            self?.appendLog(id: pluginId, "sendMessage to \(chatId)")
++            impl(chatId, text, finish)
++        }
++        let messages: @convention(block) (JSValue, JSValue, JSValue) -> Void = { [weak self] chatIdValue, limitValue, callback in
++            let finish: ([[String: Any]]?, String?) -> Void = { list, error in
++                DispatchQueue.main.async {
++                    guard let self = self, self.loaded[pluginId] != nil, !callback.isUndefined, !callback.isNull else {
++                        return
++                    }
++                    let errorArgument: Any = error.map { $0 as Any } ?? NSNull()
++                    let listArgument: Any = list.map { $0 as Any } ?? NSNull()
++                    callback.call(withArguments: [errorArgument, listArgument])
++                }
++            }
++            guard let chatId = SGPluginManager.int64(from: chatIdValue) else {
++                finish(nil, "invalid chatId")
++                return
++            }
++            var limit = 20
++            if limitValue.isNumber {
++                limit = Int(limitValue.toInt32())
++            }
++            limit = max(1, min(100, limit))
++            guard let impl = self?.host.getMessages else {
++                finish(nil, "not available")
++                return
++            }
++            impl(chatId, limit, finish)
++        }
++        let api: @convention(block) (String, JSValue, JSValue) -> Void = { [weak self] method, paramsValue, callback in
++            let finish: (Any?, String?) -> Void = { result, error in
++                DispatchQueue.main.async {
++                    guard let self = self, self.loaded[pluginId] != nil, !callback.isUndefined, !callback.isNull else {
++                        return
++                    }
++                    let errorArgument: Any = error.map { $0 as Any } ?? NSNull()
++                    let resultArgument: Any = result ?? NSNull()
++                    callback.call(withArguments: [errorArgument, resultArgument])
++                }
++            }
++            var params: [String: Any] = [:]
++            if paramsValue.isObject, let dict = paramsValue.toDictionary() as? [String: Any] {
++                params = dict
++            }
++            guard let impl = self?.host.apiCall else {
++                finish(nil, "not available")
++                return
++            }
++            impl(method, params, finish)
++        }
+         let log: @convention(block) () -> Void = { [weak self] in
+             let args = JSContext.currentArguments() as? [JSValue] ?? []
+             let line = args.map { $0.toString() ?? "" }.joined(separator: " ")
+@@ -511,6 +594,10 @@ public final class SGPluginManager {
+         tg.setObject(unsafeBitCast(openUrl, to: AnyObject.self), forKeyedSubscript: "openUrl" as NSString)
+         tg.setObject(unsafeBitCast(httpGet, to: AnyObject.self), forKeyedSubscript: "httpGet" as NSString)
+         tg.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "log" as NSString)
++        tg.setObject(unsafeBitCast(sendMessage, to: AnyObject.self), forKeyedSubscript: "sendMessage" as NSString)
++        tg.setObject(unsafeBitCast(messages, to: AnyObject.self), forKeyedSubscript: "messages" as NSString)
++        tg.setObject(unsafeBitCast(messages, to: AnyObject.self), forKeyedSubscript: "getMessages" as NSString)
++        tg.setObject(unsafeBitCast(api, to: AnyObject.self), forKeyedSubscript: "api" as NSString)
+         tg.setObject(SGPluginManager.apiVersion, forKeyedSubscript: "version" as NSString)
+ 
+         storage.setObject(unsafeBitCast(storageGet, to: AnyObject.self), forKeyedSubscript: "get" as NSString)
+@@ -591,6 +678,16 @@ public final class SGPluginManager {
+         self.logs[id] = lines
+     }
+ 
++    static func int64(from value: JSValue) -> Int64? {
++        if value.isNumber {
++            return Int64(value.toDouble())
++        }
++        if value.isString, let string = value.toString() {
++            return Int64(string)
++        }
++        return nil
++    }
++
+     private static let prelude = """
+     tg.entity = function (type, offset, length, url) {
+       return { type: String(type), offset: offset, length: length, url: url };
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index fe72c3ad20..80d646cdd5 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -1475,6 +1475,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+             }
+             self.crashReportPromptDisposable.set(nil)
+             self.contextValue = context
++            sgPluginsSetContext(context?.context) // MARK: tontoho Mode — plugins
+             if let context = context {
+                 setupLegacyComponents(context: context.context)
+                 let isReady = context.isReady.get()
+diff --git a/submodules/TelegramUI/Sources/SGPluginsHooks.swift b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
+index c2135ffe87..a5ee31c3d3 100644
+--- a/submodules/TelegramUI/Sources/SGPluginsHooks.swift
++++ b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
+@@ -2,6 +2,7 @@
+ import Foundation
+ import UIKit
+ import Display
++import SwiftSignalKit
+ import TelegramCore
+ import TelegramPresentationData
+ import AccountContext
+@@ -102,3 +103,140 @@ func sgPluginsContextMenuActions(message: EngineRawMessage) -> [ContextMenuItem]
+         }))
+     }
+ }
++
++// MARK: tontoho Mode — Telegram functions for plugins (tg.sendMessage, tg.messages, tg.api).
++
++private final class SGPluginsContextBox {
++    weak var context: AccountContext?
++}
++
++private let sgPluginsContextBox = SGPluginsContextBox()
++
++private func sgPluginPeerDictionary(_ peer: EnginePeer) -> [String: Any] {
++    var type = "user"
++    if case .legacyGroup = peer {
++        type = "group"
++    } else if case .channel = peer {
++        type = "channel"
++    } else if case .secretChat = peer {
++        type = "secret"
++    }
++    var result: [String: Any] = [
++        "id": String(peer.id.toInt64()),
++        "name": peer.debugDisplayTitle,
++        "type": type
++    ]
++    if let username = peer.addressName {
++        result["username"] = username
++    }
++    return result
++}
++
++/// Called by AppDelegate whenever the active account changes.
++func sgPluginsSetContext(_ context: AccountContext?) {
++    sgPluginsContextBox.context = context
++    let host = SGPluginManager.shared.host
++
++    host.sendMessage = { chatId, text, completion in
++        guard let context = sgPluginsContextBox.context else {
++            completion("no account")
++            return
++        }
++        if text.isEmpty {
++            completion("empty text")
++            return
++        }
++        let peerId = EnginePeer.Id(chatId)
++        let _ = (enqueueMessages(account: context.account, peerId: peerId, messages: [.message(text: text, attributes: [], inlineStickers: [:], mediaReference: nil, threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])])
++        |> deliverOnMainQueue).startStandalone(next: { _ in
++            completion(nil)
++        })
++    }
++
++    host.getMessages = { chatId, limit, completion in
++        guard let context = sgPluginsContextBox.context else {
++            completion(nil, "no account")
++            return
++        }
++        let peerId = EnginePeer.Id(chatId)
++        let accountPeerId = context.account.peerId
++        let _ = (context.engine.messages.searchMessages(location: .peer(peerId: peerId, fromId: nil, tags: nil, reactions: nil, threadId: nil, minDate: nil, maxDate: nil), query: "", state: nil, limit: Int32(limit))
++        |> take(1)
++        |> deliverOnMainQueue).startStandalone(next: { resultAndState in
++            let result = resultAndState.0
++            var list: [[String: Any]] = []
++            for message in result.messages.prefix(limit) {
++                var item: [String: Any] = [
++                    "id": NSNumber(value: message.id.id),
++                    "chatId": String(message.id.peerId.toInt64()),
++                    "text": message.text,
++                    "outgoing": NSNumber(value: !message.flags.contains(.Incoming)),
++                    "date": NSNumber(value: message.timestamp)
++                ]
++                if let author = message.author {
++                    item["fromId"] = String(author.id.toInt64())
++                    item["fromMe"] = NSNumber(value: author.id == accountPeerId)
++                }
++                list.append(item)
++            }
++            completion(list, nil)
++        })
++    }
++
++    host.apiCall = { method, params, completion in
++        guard let context = sgPluginsContextBox.context else {
++            completion(nil, "no account")
++            return
++        }
++        switch method {
++        case "getMe":
++            let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
++            |> deliverOnMainQueue).startStandalone(next: { peer in
++                if let peer = peer {
++                    completion(sgPluginPeerDictionary(peer), nil)
++                } else {
++                    completion(nil, "not found")
++                }
++            })
++        case "getChat":
++            var chatId: Int64?
++            if let value = params["chatId"] as? String {
++                chatId = Int64(value)
++            } else if let value = params["chatId"] as? NSNumber {
++                chatId = value.int64Value
++            }
++            guard let chatIdValue = chatId else {
++                completion(nil, "chatId is required")
++                return
++            }
++            let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: EnginePeer.Id(chatIdValue)))
++            |> deliverOnMainQueue).startStandalone(next: { peer in
++                if let peer = peer {
++                    completion(sgPluginPeerDictionary(peer), nil)
++                } else {
++                    completion(nil, "not found")
++                }
++            })
++        case "resolveUsername":
++            guard var username = params["username"] as? String, !username.isEmpty else {
++                completion(nil, "username is required")
++                return
++            }
++            if username.hasPrefix("@") {
++                username = String(username.dropFirst())
++            }
++            let _ = (context.engine.peers.resolvePeerByName(name: username, referrer: nil)
++            |> deliverOnMainQueue).startStandalone(next: { result in
++                if case let .result(peer) = result {
++                    if let peer = peer {
++                        completion(sgPluginPeerDictionary(peer), nil)
++                    } else {
++                        completion(nil, "not found")
++                    }
++                }
++            })
++        default:
++            completion(nil, "unknown method \(method)")
++        }
++    }
++}
