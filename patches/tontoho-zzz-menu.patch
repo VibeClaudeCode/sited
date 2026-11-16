@@ -1,0 +1,131 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoMenuController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoMenuController.swift
+new file mode 100644
+index 0000000000..b81c7a592d
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoMenuController.swift
+@@ -0,0 +1,72 @@
++// MARK: tontoho Mode — main menu: Mod Settings, Plugins, Customization, Network.
++import SGItemListUI
++import SGStrings
++
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++
++private enum TontohoMenuSection: Int32, SGItemListSection {
++    case main
++}
++
++private enum TontohoMenuLink: String {
++    case settings
++    case plugins
++    case customization
++    case network
++}
++
++private typealias TontohoMenuEntry = SGItemListUIEntry<TontohoMenuSection, AnyHashable, AnyHashable, AnyHashable, TontohoMenuLink, AnyHashable>
++
++private func tontohoMenuEntries(presentationData: PresentationData) -> [TontohoMenuEntry] {
++    let lang = presentationData.strings.baseLanguageCode
++    let id = SGItemListCounter()
++    var entries: [TontohoMenuEntry] = []
++    entries.append(.disclosure(id: id.count, section: .main, link: .settings, text: "👻  " + i18n("TontohoMode.Settings", lang)))
++    entries.append(.disclosure(id: id.count, section: .main, link: .plugins, text: "🧩  " + i18n("TontohoMode.Plugins", lang)))
++    entries.append(.disclosure(id: id.count, section: .main, link: .customization, text: "🎨  " + i18n("TontohoMode.Customization", lang)))
++    entries.append(.disclosure(id: id.count, section: .main, link: .network, text: "🌐  " + i18n("TontohoMode.Network", lang)))
++    entries.append(.notice(id: id.count, section: .main, text: i18n("TontohoMode.Menu.Notice", lang)))
++    return entries
++}
++
++public func sgTontohoModeController(context: AccountContext) -> ViewController {
++    var pushControllerImpl: ((ViewController) -> Void)?
++
++    let arguments = SGItemListArguments<AnyHashable, AnyHashable, AnyHashable, TontohoMenuLink, AnyHashable>(
++        context: context,
++        openDisclosureLink: { link in
++            switch link {
++            case .settings:
++                pushControllerImpl?(sgTontohoModeSettingsController(context: context))
++            case .plugins:
++                pushControllerImpl?(sgTontohoPluginsController(context: context))
++            case .customization:
++                pushControllerImpl?(sgTontohoCustomizationController(context: context))
++            case .network:
++                pushControllerImpl?(sgTontohoNetworkController(context: context))
++            }
++        }
++    )
++
++    let signal = context.sharedContext.presentationData
++    |> map { presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let entries = tontohoMenuEntries(presentationData: presentationData)
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("tontoho Mode"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
++        return (controllerState, (listState, arguments))
++    }
++
++    let controller = ItemListController(context: context, state: signal)
++    pushControllerImpl = { [weak controller] c in
++        (controller?.navigationController as? NavigationController)?.pushViewController(c)
++    }
++    return controller
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+index 55e299e689..07cddd3751 100644
+--- a/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/TontohoModeController.swift
+@@ -53,10 +53,6 @@ private func tontohoEntries(presentationData: PresentationData) -> [TontohoEntry
+     let options = tontohoGhostOptions()
+     let enabledCount = options.filter { $0 }.count
+ 
+-    entries.append(.disclosure(id: id.count, section: .categories, link: .customization, text: i18n("TontohoMode.Customization", lang)))
+-    entries.append(.disclosure(id: id.count, section: .categories, link: .plugins, text: i18n("TontohoMode.Plugins", lang)))
+-    entries.append(.disclosure(id: id.count, section: .categories, link: .network, text: i18n("TontohoMode.Network", lang)))
+-
+     entries.append(.header(id: id.count, section: .ghost, text: i18n("Settings.GhostMode.Header", lang), badge: nil))
+     entries.append(.toggle(id: id.count, section: .ghost, settingName: .ghostAll, value: enabledCount > 0, text: "\(i18n("TontohoMode.Ghost", lang))  \(enabledCount)/\(options.count)", enabled: true))
+     entries.append(.toggle(id: id.count, section: .ghost, settingName: .ghostRead, value: s.ghostModeRead, text: i18n("Settings.GhostMode.Read", lang), enabled: true))
+@@ -75,7 +71,7 @@ private func tontohoEntries(presentationData: PresentationData) -> [TontohoEntry
+     return entries
+ }
+ 
+-public func sgTontohoModeController(context: AccountContext) -> ViewController {
++public func sgTontohoModeSettingsController(context: AccountContext) -> ViewController {
+     let refresh = ValuePromise(true, ignoreRepeated: false)
+ 
+     var pushControllerImpl: ((ViewController) -> Void)?
+@@ -122,7 +118,7 @@ public func sgTontohoModeController(context: AccountContext) -> ViewController {
+     let signal = combineLatest(queue: .mainQueue(), refresh.get(), context.sharedContext.presentationData)
+     |> map { _, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
+         let entries = tontohoEntries(presentationData: presentationData)
+-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("tontoho Mode"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("TontohoMode.Settings", presentationData.strings.baseLanguageCode)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
+         return (controllerState, (listState, arguments))
+     }
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index d5d2d1109c..0ad316d7f3 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -351,3 +351,5 @@
+ "Network.AntiDpi.Delay" = "Delay between pieces";
+ "Network.AntiDpi.Ms" = "ms";
+ "Network.AntiDpi.Options.Notice" = "If Telegram doesn't connect, try another method or a longer delay. Works only without a proxy and on the standard network engine.";
++"TontohoMode.Settings" = "Mod Settings";
++"TontohoMode.Menu.Notice" = "Mod Settings — ghost mode and keeping deleted messages. Network — experimental blocking bypass.";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index 9aec881816..c122805b1f 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -342,3 +342,5 @@
+ "Network.AntiDpi.Delay" = "Пауза между кусками";
+ "Network.AntiDpi.Ms" = "мс";
+ "Network.AntiDpi.Options.Notice" = "Если Telegram не подключается, попробуйте другой способ или паузу подлиннее. Работает только без прокси и на стандартном сетевом движке.";
++"TontohoMode.Settings" = "Настройки мода";
++"TontohoMode.Menu.Notice" = "Настройки мода — режим призрака и сохранение удалённых сообщений. Сеть — экспериментальный обход блокировок.";
