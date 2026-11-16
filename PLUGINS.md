@@ -30,7 +30,7 @@
 
 | Функция | Что делает |
 |---|---|
-| `tg.onOutgoingMessage(fn)` | `fn(text, chat)` вызывается для каждого исходящего текста (и подписи к медиа). Вернёшь строку — отправится она. Вернёшь `null` или `false` — сообщение не отправится. Ничего не вернёшь — уйдёт как есть. |
+| `tg.onOutgoingMessage(fn)` | `fn(text, chat)` вызывается для каждого исходящего текста (и подписи к медиа). Вернёшь строку — отправится она. Вернёшь `null` или `false` — сообщение не отправится. Ничего не вернёшь — уйдёт как есть. Можно вернуть объект с форматированием — см. «Форматирование» ниже. |
 | `tg.addCommand(name, fn)` | Если сообщение начинается с `.name`, вызывается `fn(args, chat)`, где `args` — текст после команды. Возвращаемое значение работает так же, как выше. |
 | `tg.addMessageAction(title, fn)` | Добавляет пункт в меню сообщения (долгое нажатие). Вызывается `fn(message)`. Если вернуть строку, она покажется в окне с кнопкой «Copy». |
 | `tg.alert(text, title?)` | Показать окно с текстом. |
@@ -40,6 +40,28 @@
 | `tg.storage.get(key)` / `set(key, value)` / `remove(key)` | Хранилище строк, своё у каждого плагина. Сохраняется между запусками. |
 | `tg.log(...)`, `console.log(...)` | Запись в лог плагина (Плагины → Показать лог). |
 | `tg.version` | Версия API (`"1.0"`). |
+
+## Форматирование
+
+Обработчик `onOutgoingMessage` или команда могут вернуть объект `{ text, entities }` вместо строки:
+
+```js
+// всё сообщение жирным
+tg.onOutgoingMessage(function (text) {
+  return tg.formatAll(text, "bold");
+});
+
+// своя разметка: первое слово курсивом
+tg.onOutgoingMessage(function (text) {
+  var first = text.split(" ")[0];
+  return { text: text, entities: [tg.entity("italic", 0, first.length)] };
+});
+```
+
+- `tg.formatAll(text, type[, url])` — отформатировать весь текст.
+- `tg.entity(type, offset, length[, url])` — один диапазон. `offset` и `length` считаются как индексы строки в JavaScript (`text.length`).
+- Типы: `bold`, `italic`, `underline`, `strikethrough`, `code`, `pre`, `spoiler`, `quote`, `url` (нужен `url`).
+- Если `text` в объекте не меняли, форматирование, которое ты сделал сам в поле ввода, сохраняется и к нему добавляется новое.
 
 Формат объектов:
 - `chat = { chatId: "123" }`
@@ -84,6 +106,7 @@ tg.addMessageAction("Мой IP", function () {
 | Keyboard Layout Fixer | `.fix ghbdtn` → `привет`; в меню — «Fix layout» |
 | Templates | `.tset имя текст`, `.t имя`, `.tdel имя`, `.tlist` |
 | Message Info | в меню — ID, чат, дата, число символов и слов |
+| Bold Messages | каждое отправленное сообщение — **жирным** |
 
 ## Ограничения
 

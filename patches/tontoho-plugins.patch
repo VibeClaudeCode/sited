@@ -20,15 +20,15 @@ index 0000000000..c1fec18461
 +)
 diff --git a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
 new file mode 100644
-index 0000000000..f23732bd48
+index 0000000000..577298c878
 --- /dev/null
 +++ b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,175 @@
 +// MARK: tontoho Mode — example plugins that can be installed from settings.
 +import Foundation
 +
 +public enum SGPluginExamples {
-+    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo]
++    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll]
 +
 +    static let textTools = #"""
 +// @id text-tools
@@ -186,13 +186,25 @@ index 0000000000..f23732bd48
 +  ].join("\n");
 +});
 +"""#
++
++    static let boldAll = #"""
++// @id bold-all
++// @name Bold Messages
++// @version 1.0
++// @author tontoho
++// @description Makes every message you send bold. Turn the plugin off to send normal text again.
++
++tg.onOutgoingMessage(function (text) {
++  return tg.formatAll(text, "bold");
++});
++"""#
 +}
 diff --git a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
 new file mode 100644
-index 0000000000..ebda2fe2e5
+index 0000000000..ffb1bbe977
 --- /dev/null
 +++ b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,778 @@
 +// MARK: tontoho Mode — JavaScript plugins (JavaScriptCore).
 +//
 +// A plugin is a JavaScript file. Optional metadata goes in the first comment lines:
@@ -254,9 +266,26 @@ index 0000000000..ebda2fe2e5
 +    public let title: String
 +}
 +
++/// A formatting range in UTF-16 code units (the same units JavaScript string indexes use).
++public struct SGPluginEntity {
++    public let type: String
++    public let offset: Int
++    public let length: Int
++    public let url: String?
++}
++
 +public enum SGPluginOutgoingResult {
 +    case unchanged
 +    case replaced(String)
++    case cancelled
++    /// `textChanged == false` means the original formatting of the message is kept and `entities` are added to it.
++    case formatted(text: String, entities: [SGPluginEntity], textChanged: Bool)
++}
++
++private enum SGPluginHandlerResult {
++    case unchanged
++    case replaced(String)
++    case formatted(String?, [SGPluginEntity])
 +    case cancelled
 +}
 +
@@ -402,7 +431,32 @@ index 0000000000..ebda2fe2e5
 +        }
 +
 +        var current = text
-+        var changed = false
++        var entities: [SGPluginEntity] = []
++        var textChanged = false
++        var cancelled = false
++
++        func apply(_ result: SGPluginHandlerResult) {
++            switch result {
++            case .unchanged:
++                break
++            case let .replaced(newText):
++                if newText != current {
++                    current = newText
++                    textChanged = true
++                    entities = []
++                }
++            case let .formatted(newText, newEntities):
++                if let newText = newText, newText != current {
++                    current = newText
++                    textChanged = true
++                    entities = newEntities
++                } else {
++                    entities.append(contentsOf: newEntities)
++                }
++            case .cancelled:
++                cancelled = true
++            }
++        }
 +
 +        // ".command args"
 +        if current.hasPrefix(".") {
@@ -421,13 +475,8 @@ index 0000000000..ebda2fe2e5
 +                    if let handler = plugin.commands[name] {
 +                        let chat = self.chatObject(chatId: chatId, in: plugin.context)
 +                        let result = self.call(plugin: plugin, handler: handler, arguments: [args, chat])
-+                        switch self.interpretOutgoing(result) {
-+                        case .unchanged:
-+                            break
-+                        case let .replaced(newText):
-+                            current = newText
-+                            changed = true
-+                        case .cancelled:
++                        apply(self.interpretOutgoing(result))
++                        if cancelled {
 +                            return .cancelled
 +                        }
 +                        break
@@ -440,22 +489,29 @@ index 0000000000..ebda2fe2e5
 +            for handler in plugin.outgoingHandlers {
 +                let chat = self.chatObject(chatId: chatId, in: plugin.context)
 +                let result = self.call(plugin: plugin, handler: handler, arguments: [current, chat])
-+                switch self.interpretOutgoing(result) {
-+                case .unchanged:
-+                    break
-+                case let .replaced(newText):
-+                    current = newText
-+                    changed = true
-+                case .cancelled:
++                apply(self.interpretOutgoing(result))
++                if cancelled {
 +                    return .cancelled
 +                }
 +            }
 +        }
 +
-+        if changed && current != text {
-+            if current.isEmpty {
-+                return .cancelled
++        if textChanged && current.isEmpty {
++            return .cancelled
++        }
++        let length = (current as NSString).length
++        let validEntities = entities.compactMap { entity -> SGPluginEntity? in
++            let start = max(0, entity.offset)
++            let end = min(length, entity.offset + entity.length)
++            if end <= start {
++                return nil
 +            }
++            return SGPluginEntity(type: entity.type, offset: start, length: end - start, url: entity.url)
++        }
++        if !validEntities.isEmpty {
++            return .formatted(text: current, entities: validEntities, textChanged: textChanged)
++        }
++        if textChanged {
 +            return .replaced(current)
 +        }
 +        return .unchanged
@@ -527,6 +583,7 @@ index 0000000000..ebda2fe2e5
 +        }
 +
 +        self.installAPI(plugin: plugin)
++        context.evaluateScript(SGPluginManager.prelude)
 +
 +        context.exception = nil
 +        context.evaluateScript(info.code)
@@ -693,7 +750,7 @@ index 0000000000..ebda2fe2e5
 +        return JSValue(object: dict, in: context) as Any
 +    }
 +
-+    private func interpretOutgoing(_ value: JSValue?) -> SGPluginOutgoingResult {
++    private func interpretOutgoing(_ value: JSValue?) -> SGPluginHandlerResult {
 +        guard let value = value else {
 +            return .unchanged
 +        }
@@ -705,6 +762,24 @@ index 0000000000..ebda2fe2e5
 +        }
 +        if value.isBoolean {
 +            return value.toBool() ? .unchanged : .cancelled
++        }
++        if value.isObject && !value.isArray && (value.hasProperty("text") || value.hasProperty("entities")) {
++            var text: String?
++            if let textValue = value.forProperty("text"), textValue.isString {
++                text = textValue.toString()
++            }
++            var entities: [SGPluginEntity] = []
++            if let list = value.forProperty("entities"), list.isArray, let items = list.toArray() {
++                for item in items {
++                    guard let dict = item as? [String: Any], let type = dict["type"] as? String else {
++                        continue
++                    }
++                    let offset = (dict["offset"] as? NSNumber)?.intValue ?? 0
++                    let length = (dict["length"] as? NSNumber)?.intValue ?? 0
++                    entities.append(SGPluginEntity(type: type.lowercased(), offset: offset, length: length, url: dict["url"] as? String))
++                }
++            }
++            return .formatted(text, entities)
 +        }
 +        if let text = value.toString() {
 +            return .replaced(text)
@@ -722,6 +797,19 @@ index 0000000000..ebda2fe2e5
 +        }
 +        self.logs[id] = lines
 +    }
++
++    private static let prelude = """
++    tg.entity = function (type, offset, length, url) {
++      return { type: String(type), offset: offset, length: length, url: url };
++    };
++    tg.formatAll = function (text, type, url) {
++      text = String(text);
++      return { text: text, entities: text.length ? [tg.entity(type, 0, text.length, url)] : [] };
++    };
++    tg.format = function (text, entities) {
++      return { text: String(text), entities: entities || [] };
++    };
++    """
 +
 +    static func parseMetadata(code: String) -> SGPluginInfo {
 +        var meta: [String: String] = [:]
@@ -1189,10 +1277,10 @@ index 226837c5e2..1e44a54784 100644
          var threadId: Int64?
 diff --git a/submodules/TelegramUI/Sources/SGPluginsHooks.swift b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
 new file mode 100644
-index 0000000000..680c260ba7
+index 0000000000..c2135ffe87
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,104 @@
 +// MARK: tontoho Mode — JavaScript plugin hooks.
 +import Foundation
 +import UIKit
@@ -1215,6 +1303,8 @@ index 0000000000..680c260ba7
 +            continue
 +        }
 +        let newText: String
++        // Entity ranges refer to the old text; formatting is rebuilt below when needed.
++        var newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +        switch SGPluginManager.shared.processOutgoing(text: text, chatId: chatId) {
 +        case .unchanged:
 +            result.append(message)
@@ -1227,12 +1317,56 @@ index 0000000000..680c260ba7
 +                continue
 +            }
 +            newText = ""
++        case let .formatted(formattedText, pluginEntities, textChanged):
++            newText = formattedText
++            var entities: [MessageTextEntity] = []
++            if !textChanged {
++                for attribute in attributes {
++                    if let attribute = attribute as? TextEntitiesMessageAttribute {
++                        entities.append(contentsOf: attribute.entities)
++                    }
++                }
++            }
++            for entity in pluginEntities {
++                if let type = sgPluginEntityType(entity) {
++                    entities.append(MessageTextEntity(range: entity.offset ..< (entity.offset + entity.length), type: type))
++                }
++            }
++            if !entities.isEmpty {
++                newAttributes.append(TextEntitiesMessageAttribute(entities: entities))
++            }
 +        }
-+        // Entity ranges refer to the old text.
-+        let newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +        result.append(.message(text: newText, attributes: newAttributes, inlineStickers: inlineStickers, mediaReference: mediaReference, threadId: threadId, replyToMessageId: replyToMessageId, replyToStoryId: replyToStoryId, localGroupingKey: localGroupingKey, correlationId: correlationId, bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets))
 +    }
 +    return result
++}
++
++private func sgPluginEntityType(_ entity: SGPluginEntity) -> MessageTextEntityType? {
++    switch entity.type {
++    case "bold":
++        return .Bold
++    case "italic":
++        return .Italic
++    case "underline":
++        return .Underline
++    case "strikethrough", "strike":
++        return .Strikethrough
++    case "code":
++        return .Code
++    case "pre":
++        return .Pre(language: entity.url)
++    case "spoiler":
++        return .Spoiler
++    case "quote", "blockquote":
++        return .BlockQuote(isCollapsed: false)
++    case "url", "link", "text_url":
++        if let url = entity.url, !url.isEmpty {
++            return .TextUrl(url: url)
++        }
++        return nil
++    default:
++        return nil
++    }
 +}
 +
 +/// Message context menu items registered by plugins.
