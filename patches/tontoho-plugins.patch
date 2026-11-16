@@ -1277,15 +1277,14 @@ index 226837c5e2..1e44a54784 100644
          var threadId: Int64?
 diff --git a/submodules/TelegramUI/Sources/SGPluginsHooks.swift b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
 new file mode 100644
-index 0000000000..91c200749c
+index 0000000000..c2135ffe87
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,104 @@
 +// MARK: tontoho Mode — JavaScript plugin hooks.
 +import Foundation
 +import UIKit
 +import Display
-+import Postbox
 +import TelegramCore
 +import TelegramPresentationData
 +import AccountContext
@@ -1304,22 +1303,20 @@ index 0000000000..91c200749c
 +            continue
 +        }
 +        let newText: String
-+        var newAttributes: [MessageAttribute]
++        // Entity ranges refer to the old text; formatting is rebuilt below when needed.
++        var newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +        switch SGPluginManager.shared.processOutgoing(text: text, chatId: chatId) {
 +        case .unchanged:
 +            result.append(message)
 +            continue
 +        case let .replaced(replacement):
 +            newText = replacement
-+            // Entity ranges refer to the old text.
-+            newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +        case .cancelled:
 +            if mediaReference == nil {
 +                // Nothing left to send.
 +                continue
 +            }
 +            newText = ""
-+            newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +        case let .formatted(formattedText, pluginEntities, textChanged):
 +            newText = formattedText
 +            var entities: [MessageTextEntity] = []
@@ -1335,7 +1332,6 @@ index 0000000000..91c200749c
 +                    entities.append(MessageTextEntity(range: entity.offset ..< (entity.offset + entity.length), type: type))
 +                }
 +            }
-+            newAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
 +            if !entities.isEmpty {
 +                newAttributes.append(TextEntitiesMessageAttribute(entities: entities))
 +            }
