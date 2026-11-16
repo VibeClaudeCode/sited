@@ -1,5 +1,5 @@
 diff --git a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
-index 577298c878..d659bd7f74 100644
+index 577298c878..6877eaf2c1 100644
 --- a/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
 +++ b/Swiftgram/SGPlugins/Sources/SGPluginExamples.swift
 @@ -2,7 +2,7 @@
@@ -7,11 +7,11 @@ index 577298c878..d659bd7f74 100644
  
  public enum SGPluginExamples {
 -    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll]
-+    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll, apiDemo]
++    public static let all: [String] = [textTools, calculator, layoutFixer, templates, messageInfo, boldAll, apiDemo, botButtons]
  
      static let textTools = #"""
  // @id text-tools
-@@ -171,5 +171,40 @@ tg.addMessageAction("Message info", function (message) {
+@@ -171,5 +171,109 @@ tg.addMessageAction("Message info", function (message) {
  tg.onOutgoingMessage(function (text) {
    return tg.formatAll(text, "bold");
  });
@@ -50,13 +50,82 @@ index 577298c878..d659bd7f74 100644
 +    tg.alert(error ? "Error: " + error : chat.name + " — " + chat.type + (chat.username ? " (@" + chat.username + ")" : ""), "Chat");
 +  });
 +});
++"""#
++
++    static let botButtons = #"""
++// @id bot-buttons
++// @name Bot Buttons
++// @version 1.0
++// @author tontoho
++// @description Inline buttons via your own bot. .bottoken TOKEN — save the token from @BotFather. .btn Text | Button=https://link | Button2 — the bot sends the message with buttons to this chat (the bot must be a member of the chat).
++
++function token() { return tg.storage.get("token"); }
++
++function botCall(method, body, cb) {
++  var t = token();
++  if (!t) { tg.alert("First send: .bottoken YOUR_BOT_TOKEN", "Bot Buttons"); return; }
++  tg.httpPost("https://api.telegram.org/bot" + t + "/" + method, JSON.stringify(body), function (error, text) {
++    var data = null;
++    try { data = JSON.parse(text); } catch (e) {}
++    if (cb) cb(error || (data && !data.ok ? data.description : null), data ? data.result : null);
++  });
++}
++
++tg.addCommand("bottoken", function (args) {
++  var t = args.trim();
++  if (!/^\d+:[\w-]+$/.test(t)) { tg.alert("Usage: .bottoken 123456:ABC...", "Bot Buttons"); return null; }
++  tg.storage.set("token", t);
++  tg.alert("Token saved.", "Bot Buttons");
++  startPolling();
++  return null;
++});
++
++// .btn Hello! | Site=https://example.com | Like | Dislike
++tg.addCommand("btn", function (args, chat) {
++  var parts = args.split("|").map(function (p) { return p.trim(); }).filter(Boolean);
++  if (parts.length < 2) { tg.alert("Usage: .btn Text | Button=https://link | Button2", "Bot Buttons"); return null; }
++  if (!chat.botChatId) { tg.alert("This chat type is not supported.", "Bot Buttons"); return null; }
++  var buttons = parts.slice(1).map(function (p) {
++    var eq = p.indexOf("=");
++    if (eq > 0 && /^https?:\/\//.test(p.slice(eq + 1).trim())) {
++      return { text: p.slice(0, eq).trim(), url: p.slice(eq + 1).trim() };
++    }
++    return { text: p, callback_data: p.slice(0, 60) };
++  });
++  var rows = [];
++  for (var i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
++  botCall("sendMessage", { chat_id: chat.botChatId, text: parts[0], reply_markup: { inline_keyboard: rows } }, function (error) {
++    if (error) tg.alert("Bot error: " + error + "\n\nIs the bot a member of this chat?", "Bot Buttons");
++  });
++  return null;
++});
++
++// Answer button presses while the app is open.
++var polling = null;
++function startPolling() {
++  if (polling || !token()) return;
++  polling = setInterval(function () {
++    var offset = Number(tg.storage.get("offset") || "0");
++    botCall("getUpdates", { offset: offset, timeout: 0, allowed_updates: ["callback_query"] }, function (error, updates) {
++      if (error || !updates) return;
++      updates.forEach(function (u) {
++        tg.storage.set("offset", String(u.update_id + 1));
++        var q = u.callback_query;
++        if (!q) return;
++        tg.log("Pressed: " + q.data + " by " + (q.from && (q.from.username || q.from.first_name)));
++        botCall("answerCallbackQuery", { callback_query_id: q.id, text: "You pressed: " + q.data });
++      });
++    });
++  }, 3000);
++}
++startPolling();
  """#
  }
 diff --git a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
-index ffb1bbe977..e6ebbb476d 100644
+index ffb1bbe977..29ccc22f6f 100644
 --- a/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
 +++ b/Swiftgram/SGPlugins/Sources/SGPluginManager.swift
-@@ -109,10 +109,25 @@ private final class SGLoadedPlugin {
+@@ -109,10 +109,27 @@ private final class SGLoadedPlugin {
      }
  }
  
@@ -68,6 +137,8 @@ index ffb1bbe977..e6ebbb476d 100644
 +    public var getMessages: ((Int64, Int, @escaping ([[String: Any]]?, String?) -> Void) -> Void)?
 +    /// (method, params, completion(result, error))
 +    public var apiCall: ((String, [String: Any], @escaping (Any?, String?) -> Void) -> Void)?
++    /// Converts a client chat id into the id the Bot API uses ("123", "-123", "-100123").
++    public var botApiChatId: ((Int64) -> String?)?
 +
 +    init() {
 +    }
@@ -79,14 +150,132 @@ index ffb1bbe977..e6ebbb476d 100644
 -    public static let apiVersion = "1.0"
 +    public let host = SGPluginHost()
 +
-+    public static let apiVersion = "1.1"
++    public static let apiVersion = "1.2"
  
      private let listKey = "sg.tontoho.plugins.list"
      private let storageKeyPrefix = "sg.tontoho.plugins.storage."
-@@ -497,6 +512,74 @@ public final class SGPluginManager {
+@@ -121,6 +138,8 @@ public final class SGPluginManager {
+     public private(set) var plugins: [SGPluginInfo] = []
+     private var loaded: [String: SGLoadedPlugin] = [:]
+     private var logs: [String: [String]] = [:]
++    private var timers: [String: [Int: Timer]] = [:]
++    private var nextTimerId = 1
+     private var didStart = false
+ 
+     private init() {
+@@ -329,13 +348,16 @@ public final class SGPluginManager {
+             return
+         }
+         let handler = plugin.messageActions[action.index].handler
+-        let messageObject: [String: Any] = [
++        var messageObject: [String: Any] = [
+             "id": NSNumber(value: message.id),
+             "chatId": String(message.chatId),
+             "text": message.text,
+             "outgoing": NSNumber(value: message.outgoing),
+             "date": NSNumber(value: message.date)
+         ]
++        if let botChatId = self.host.botApiChatId?(message.chatId) {
++            messageObject["botChatId"] = botChatId
++        }
+         let value = JSValue(object: messageObject, in: plugin.context) as Any
+         let result = self.call(plugin: plugin, handler: handler, arguments: [value])
+         if let result = result, result.isString, let text = result.toString(), !text.isEmpty {
+@@ -356,9 +378,41 @@ public final class SGPluginManager {
+     }
+ 
+     private func unload(id: String) {
++        if let pluginTimers = self.timers[id] {
++            for (_, timer) in pluginTimers {
++                timer.invalidate()
++            }
++        }
++        self.timers[id] = nil
+         self.loaded[id] = nil
+     }
+ 
++    private func addTimer(pluginId: String, handler: JSValue, milliseconds: Double, repeats: Bool) -> Int {
++        let timerId = self.nextTimerId
++        self.nextTimerId += 1
++        let safeMilliseconds = milliseconds.isFinite ? milliseconds : 0.0
++        let interval = max(repeats ? 0.05 : 0.0, safeMilliseconds / 1000.0)
++        let timer = Timer(timeInterval: interval, repeats: repeats, block: { [weak self] _ in
++            guard let self = self, let plugin = self.loaded[pluginId] else {
++                return
++            }
++            if !repeats {
++                self.timers[pluginId]?[timerId] = nil
++            }
++            _ = self.call(plugin: plugin, handler: handler, arguments: [])
++        })
++        RunLoop.main.add(timer, forMode: .common)
++        var pluginTimers = self.timers[pluginId] ?? [:]
++        pluginTimers[timerId] = timer
++        self.timers[pluginId] = pluginTimers
++        return timerId
++    }
++
++    private func removeTimer(pluginId: String, timerId: Int) {
++        self.timers[pluginId]?[timerId]?.invalidate()
++        self.timers[pluginId]?[timerId] = nil
++    }
++
+     /// Returns an error description, or nil on success.
+     private func load(_ info: SGPluginInfo) -> String? {
+         guard let context = JSContext() else {
+@@ -497,6 +551,123 @@ public final class SGPluginManager {
              dict[key] = nil
              UserDefaults.standard.set(dict, forKey: storageKey)
          }
++        let setTimeoutBlock: @convention(block) (JSValue, Double) -> Int = { [weak self] handler, milliseconds in
++            guard let self = self, handler.isObject else {
++                return 0
++            }
++            return self.addTimer(pluginId: pluginId, handler: handler, milliseconds: milliseconds, repeats: false)
++        }
++        let setIntervalBlock: @convention(block) (JSValue, Double) -> Int = { [weak self] handler, milliseconds in
++            guard let self = self, handler.isObject else {
++                return 0
++            }
++            return self.addTimer(pluginId: pluginId, handler: handler, milliseconds: milliseconds, repeats: true)
++        }
++        let clearTimerBlock: @convention(block) (Int) -> Void = { [weak self] timerId in
++            self?.removeTimer(pluginId: pluginId, timerId: timerId)
++        }
++        let httpPost: @convention(block) (String, JSValue, JSValue) -> Void = { [weak self] string, bodyValue, callback in
++            guard let url = URL(string: string), url.scheme == "https" || url.scheme == "http" else {
++                callback.call(withArguments: ["invalid url", NSNull()])
++                return
++            }
++            var request = URLRequest(url: url)
++            request.httpMethod = "POST"
++            if bodyValue.isString {
++                request.httpBody = (bodyValue.toString() ?? "").data(using: .utf8)
++                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
++            } else if bodyValue.isObject, let object = bodyValue.toObject(), JSONSerialization.isValidJSONObject(object) {
++                request.httpBody = try? JSONSerialization.data(withJSONObject: object)
++                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
++            }
++            URLSession.shared.dataTask(with: request, completionHandler: { data, response, error in
++                var body = ""
++                if let data = data {
++                    body = String(data: data, encoding: .utf8) ?? ""
++                }
++                var errorText: String?
++                if let error = error {
++                    errorText = error.localizedDescription
++                } else if let response = response as? HTTPURLResponse, !(200 ..< 300).contains(response.statusCode) {
++                    errorText = "HTTP \(response.statusCode)"
++                }
++                DispatchQueue.main.async {
++                    guard let self = self, self.loaded[pluginId] != nil else {
++                        return
++                    }
++                    let errorArgument: Any = errorText.map { $0 as Any } ?? NSNull()
++                    callback.call(withArguments: [errorArgument, body])
++                }
++            }).resume()
++        }
 +        let sendMessage: @convention(block) (JSValue, String, JSValue) -> Void = { [weak self] chatIdValue, text, callback in
 +            let finish: (String?) -> Void = { error in
 +                DispatchQueue.main.async {
@@ -158,7 +347,7 @@ index ffb1bbe977..e6ebbb476d 100644
          let log: @convention(block) () -> Void = { [weak self] in
              let args = JSContext.currentArguments() as? [JSValue] ?? []
              let line = args.map { $0.toString() ?? "" }.joined(separator: " ")
-@@ -511,6 +594,10 @@ public final class SGPluginManager {
+@@ -511,6 +682,15 @@ public final class SGPluginManager {
          tg.setObject(unsafeBitCast(openUrl, to: AnyObject.self), forKeyedSubscript: "openUrl" as NSString)
          tg.setObject(unsafeBitCast(httpGet, to: AnyObject.self), forKeyedSubscript: "httpGet" as NSString)
          tg.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "log" as NSString)
@@ -166,10 +355,27 @@ index ffb1bbe977..e6ebbb476d 100644
 +        tg.setObject(unsafeBitCast(messages, to: AnyObject.self), forKeyedSubscript: "messages" as NSString)
 +        tg.setObject(unsafeBitCast(messages, to: AnyObject.self), forKeyedSubscript: "getMessages" as NSString)
 +        tg.setObject(unsafeBitCast(api, to: AnyObject.self), forKeyedSubscript: "api" as NSString)
++        tg.setObject(unsafeBitCast(httpPost, to: AnyObject.self), forKeyedSubscript: "httpPost" as NSString)
++        context.setObject(unsafeBitCast(setTimeoutBlock, to: AnyObject.self), forKeyedSubscript: "setTimeout" as NSString)
++        context.setObject(unsafeBitCast(setIntervalBlock, to: AnyObject.self), forKeyedSubscript: "setInterval" as NSString)
++        context.setObject(unsafeBitCast(clearTimerBlock, to: AnyObject.self), forKeyedSubscript: "clearTimeout" as NSString)
++        context.setObject(unsafeBitCast(clearTimerBlock, to: AnyObject.self), forKeyedSubscript: "clearInterval" as NSString)
          tg.setObject(SGPluginManager.apiVersion, forKeyedSubscript: "version" as NSString)
  
          storage.setObject(unsafeBitCast(storageGet, to: AnyObject.self), forKeyedSubscript: "get" as NSString)
-@@ -591,6 +678,16 @@ public final class SGPluginManager {
+@@ -539,7 +719,10 @@ public final class SGPluginManager {
+     }
+ 
+     private func chatObject(chatId: Int64, in context: JSContext) -> Any {
+-        let dict: [String: Any] = ["chatId": String(chatId)]
++        var dict: [String: Any] = ["chatId": String(chatId)]
++        if let botChatId = self.host.botApiChatId?(chatId) {
++            dict["botChatId"] = botChatId
++        }
+         return JSValue(object: dict, in: context) as Any
+     }
+ 
+@@ -591,6 +774,16 @@ public final class SGPluginManager {
          self.logs[id] = lines
      }
  
@@ -199,7 +405,7 @@ index fe72c3ad20..80d646cdd5 100644
                  setupLegacyComponents(context: context.context)
                  let isReady = context.isReady.get()
 diff --git a/submodules/TelegramUI/Sources/SGPluginsHooks.swift b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
-index c2135ffe87..a5ee31c3d3 100644
+index c2135ffe87..01c8913647 100644
 --- a/submodules/TelegramUI/Sources/SGPluginsHooks.swift
 +++ b/submodules/TelegramUI/Sources/SGPluginsHooks.swift
 @@ -2,6 +2,7 @@
@@ -210,7 +416,7 @@ index c2135ffe87..a5ee31c3d3 100644
  import TelegramCore
  import TelegramPresentationData
  import AccountContext
-@@ -102,3 +103,140 @@ func sgPluginsContextMenuActions(message: EngineRawMessage) -> [ContextMenuItem]
+@@ -102,3 +103,153 @@ func sgPluginsContextMenuActions(message: EngineRawMessage) -> [ContextMenuItem]
          }))
      }
  }
@@ -247,6 +453,19 @@ index c2135ffe87..a5ee31c3d3 100644
 +func sgPluginsSetContext(_ context: AccountContext?) {
 +    sgPluginsContextBox.context = context
 +    let host = SGPluginManager.shared.host
++
++    host.botApiChatId = { chatId in
++        let peerId = EnginePeer.Id(chatId)
++        let rawId = peerId.id._internalGetInt64Value()
++        if peerId.namespace == Namespaces.Peer.CloudUser {
++            return String(rawId)
++        } else if peerId.namespace == Namespaces.Peer.CloudGroup {
++            return String(-rawId)
++        } else if peerId.namespace == Namespaces.Peer.CloudChannel {
++            return "-100\(rawId)"
++        }
++        return nil
++    }
 +
 +    host.sendMessage = { chatId, text, completion in
 +        guard let context = sgPluginsContextBox.context else {
