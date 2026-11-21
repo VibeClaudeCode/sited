@@ -1,0 +1,43 @@
+name: Build Aurora browser
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "browser/**"
+      - ".github/workflows/build-aurora.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: Aurora-windows-x64
+            bin: browser/target/release/aurora.exe
+          - os: macos-latest
+            artifact: Aurora-macos-arm64
+            bin: browser/target/release/aurora
+          - os: ubuntu-24.04
+            artifact: Aurora-linux-x64
+            bin: browser/target/release/aurora
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: browser
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      - run: cargo test --release
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bin }}

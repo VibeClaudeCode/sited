@@ -17,3 +17,7 @@ ssso
 ## Anti-DPI (experimental)
 
 `patches/tontoho-zapret.patch` adds Settings → tontoho Mode → Network → Anti-DPI: the first bytes of every MTProtoKit TCP connection are sent in small segments (split after 1/2/32 bytes or many 4-byte pieces, with a configurable pause), similar to zapret's `split`. It cannot help against IP-based blocking and does not touch calls.
+
+## Aurora — браузер на Rust
+
+См. [browser/README.md](browser/README.md). Сборка `.exe`: Actions → "Build Aurora browser".

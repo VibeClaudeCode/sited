@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0e0d14">
+<title>Новая вкладка</title>
+<style>
+:root{
+  --bg:#0e0d14;--panel:rgba(255,255,255,.045);--panel2:rgba(255,255,255,.08);--line:rgba(255,255,255,.08);
+  --text:#ecebf3;--dim:#9a98aa;--accent:#7c5cff;--ok:#3ddc97;--bad:#ff5c7a;
+  --ease:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.34,1.56,.64,1);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI Variable","Segoe UI",Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+button,input,select{font:inherit;color:inherit}
+.reduce *{animation-duration:.01s!important;transition-duration:.01s!important}
+
+/* ---------- aurora background ---------- */
+.sky{position:fixed;inset:-20%;z-index:0;filter:blur(90px) saturate(140%);opacity:.55;pointer-events:none}
+.blob{position:absolute;width:46vmax;height:46vmax;border-radius:50%;mix-blend-mode:screen;animation:float 26s var(--ease) infinite alternate}
+.b1{background:radial-gradient(circle,var(--accent),transparent 65%);left:5%;top:0}
+.b2{background:radial-gradient(circle,#00d1ff,transparent 65%);right:0;top:10%;animation-delay:-8s;animation-duration:32s}
+.b3{background:radial-gradient(circle,#ff4fa3,transparent 65%);left:30%;bottom:-10%;animation-delay:-16s;animation-duration:38s}
+@keyframes float{0%{transform:translate(0,0) scale(1)}50%{transform:translate(8vmax,-6vmax) scale(1.15)}100%{transform:translate(-6vmax,5vmax) scale(.9)}}
+.grain{position:fixed;inset:0;z-index:0;opacity:.06;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+main{position:relative;z-index:1}
+.rise{animation:rise .7s var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(18px) scale(.98);filter:blur(6px)}}
+
+/* ---------- new tab ---------- */
+.ntp{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px 80px}
+.clock{font-size:clamp(56px,10vw,112px);font-weight:200;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums}
+.clock .colon{animation:blink 2s steps(1) infinite}
+@keyframes blink{50%{opacity:.25}}
+.greet{color:var(--dim);margin:10px 0 34px;font-size:17px;animation-delay:.08s}
+.search{width:min(640px,100%);position:relative;animation-delay:.14s}
+.search input{width:100%;height:58px;border-radius:20px;border:1px solid var(--line);background:rgba(20,19,30,.65);backdrop-filter:blur(24px);
+  padding:0 22px 0 54px;font-size:17px;outline:none;transition:border-color .3s,box-shadow .4s var(--ease),transform .4s var(--spring)}
+.search input:focus{border-color:color-mix(in srgb,var(--accent) 70%,transparent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 18%,transparent),0 20px 60px -20px var(--accent);transform:scale(1.015)}
+.search svg{position:absolute;left:20px;top:19px;opacity:.6}
+.engine{position:absolute;right:16px;top:17px;font-size:12px;color:var(--dim);background:var(--panel2);padding:3px 10px;border-radius:99px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;width:min(640px,100%);margin-top:34px}
+@media (max-width:560px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{display:flex;flex-direction:column;align-items:center;gap:10px;padding:18px 8px 14px;border-radius:18px;background:var(--panel);border:1px solid var(--line);
+  transition:transform .45s var(--spring),background .3s,border-color .3s;animation:rise .7s var(--ease) both;cursor:pointer;min-width:0}
+.tile:hover{transform:translateY(-4px) scale(1.04);background:var(--panel2);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.tile:active{transform:scale(.96)}
+.ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--panel2);overflow:hidden;font-weight:700;font-size:17px}
+.ico img{width:24px;height:24px}
+.tile span{font-size:12.5px;color:var(--dim);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hint{position:fixed;bottom:22px;left:0;right:0;text-align:center;color:var(--dim);font-size:12.5px;opacity:.75}
+kbd{font:12px ui-monospace,Consolas,monospace;background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 6px}
+
+/* ---------- app pages ---------- */
+.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{display:none!important}}
+.side{padding:28px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;background:rgba(10,9,16,.5);backdrop-filter:blur(20px)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:16px;padding:0 10px 20px}
+.logo{width:26px;height:26px;border-radius:8px;background:conic-gradient(from 200deg,var(--accent),#00d1ff,#ff4fa3,var(--accent));animation:spin 12s linear infinite}
+@keyframes spin{to{filter:hue-rotate(360deg)}}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:11px;color:var(--dim);transition:background .25s,color .25s,transform .3s var(--spring);position:relative}
+.nav:hover{background:var(--panel);color:var(--text)}
+.nav.on{background:var(--panel2);color:var(--text)}
+.nav.on::before{content:"";position:absolute;left:-14px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--accent);animation:grow .45s var(--spring)}
+@keyframes grow{from{transform:scaleY(0)}}
+.content{padding:38px clamp(18px,4vw,56px) 80px;max-width:980px;width:100%}
+h1{font-size:30px;font-weight:650;letter-spacing:-.02em;margin:0 0 6px}
+.sub{color:var(--dim);margin:0 0 26px}
+.bar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.field{flex:1;min-width:200px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--panel);padding:0 14px;outline:none;transition:border-color .25s,box-shadow .3s}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 20%,transparent)}
+.btn{height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);cursor:pointer;transition:transform .3s var(--spring),background .2s}
+.btn:hover{background:rgba(255,255,255,.12)}.btn:active{transform:scale(.95)}
+.btn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
+.group{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin:22px 4px 8px}
+.row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;transition:background .2s,transform .35s var(--spring),opacity .35s;cursor:pointer;animation:rise .5s var(--ease) both}
+.row:hover{background:var(--panel)}
+.row .ico{width:30px;height:30px;border-radius:9px;font-size:13px;flex:none}.row .ico img{width:18px;height:18px}
+.row .t{flex:1;min-width:0}
+.row .t b{display:block;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .t small{display:block;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.row .meta{color:var(--dim);font-size:12px;flex:none}
+.x{opacity:0;border:0;background:none;cursor:pointer;width:30px;height:30px;border-radius:9px;transition:opacity .2s,background .2s;flex:none}
+.row:hover .x{opacity:.7}.x:hover{background:var(--panel2);opacity:1!important}
+.row.gone{opacity:0;transform:translateX(30px) scale(.97)}
+.empty{color:var(--dim);text-align:center;padding:60px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:6px 18px;margin-bottom:16px;animation:rise .6s var(--ease) both}
+.set{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
+.set:last-child{border:0}
+.set .t{flex:1}.set .t small{display:block;color:var(--dim)}
+select.field{flex:none;min-width:180px;cursor:pointer}
+.sw{width:46px;height:28px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer;transition:background .3s;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .45s var(--spring);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.sw.on{background:var(--accent)}.sw.on::after{transform:translateX(18px)}
+.swatches{display:flex;gap:8px}
+.swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:transform .35s var(--spring)}
+.swatch:hover{transform:scale(1.15)}.swatch.on{border-color:#fff;transform:scale(1.1)}
+.prog{width:120px;height:4px;border-radius:4px;background:var(--panel2);overflow:hidden}
+.prog i{display:block;height:100%;width:40%;background:var(--accent);animation:ind 1.2s var(--ease) infinite}
+@keyframes ind{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+.keys{display:grid;grid-template-columns:1fr auto;gap:2px 20px}
+.keys div{padding:9px 4px;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="sky"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+<div class="grain"></div>
+<main id="root"></main>
+<script>
+(() => {
+const DATA = /*__DATA__*/null || {page:'newtab',settings:{},bookmarks:[],history:[],downloads:[],topSites:[]};
+if (window.top !== window) { document.documentElement.innerHTML = ''; return; }
+const S = DATA.settings || {};
+document.documentElement.style.setProperty('--accent', S.accent || '#7c5cff');
+if (S.reduce_motion) document.documentElement.classList.add('reduce');
+
+const post = (m) => { try { window.ipc.postMessage(JSON.stringify(m)); } catch (e) {} };
+const go = (url, newTab) => post({ t: 'navigate', url, newTab: !!newTab });
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } };
+const icon = (u, t) => {
+  let h = ''; try { const x = new URL(u); h = x.protocol.startsWith('http') ? x.origin : ''; } catch (e) {}
+  const letter = esc(((t || host(u) || '?').trim()[0] || '?').toUpperCase());
+  return h ? `<div class="ico"><img src="${esc(h)}/favicon.ico" onerror="this.replaceWith(document.createTextNode('${letter}'))"></div>` : `<div class="ico">${letter}</div>`;
+};
+const ago = (ts) => {
+  const d = Date.now() / 1000 - ts;
+  if (d < 60) return 'только что'; if (d < 3600) return Math.floor(d / 60) + ' мин назад';
+  if (d < 86400) return Math.floor(d / 3600) + ' ч назад';
+  return new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+};
+const day = (ts) => {
+  const d = new Date(ts * 1000), now = new Date();
+  const diff = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  return diff === 0 ? 'Сегодня' : diff === 1 ? 'Вчера' : d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+};
+const ENGINES = { google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave', yandex: 'Яндекс', startpage: 'Startpage' };
+const root = document.getElementById('root');
+
+function newtab() {
+  document.title = 'Новая вкладка';
+  const h = new Date().getHours();
+  const greet = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
+  const tiles = (DATA.topSites.length ? DATA.topSites : DATA.bookmarks.slice(0, 8)).slice(0, 8);
+  root.innerHTML = `<section class="ntp">
+    <div class="clock rise" id="clock"></div>
+    <div class="greet rise">${greet}. Куда отправимся?</div>
+    <form class="search rise" id="f">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" autocomplete="off" spellcheck="false" placeholder="Поиск или адрес сайта" autofocus>
+      <span class="engine">${ENGINES[S.search] || 'Google'}</span>
+    </form>
+    <div class="tiles">${tiles.map((t, i) => `<a class="tile" data-u="${esc(t.url)}" style="animation-delay:${.2 + i * .045}s">${icon(t.url, t.title)}<span>${esc(t.title || host(t.url))}</span></a>`).join('')}</div>
+    <div class="hint"><kbd>Ctrl</kbd> <kbd>K</kbd> командная строка · <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>S</kbd> разделить экран · <a href="?p=shortcuts" style="text-decoration:underline">все горячие клавиши</a></div>
+  </section>`;
+  const tick = () => { const d = new Date(); document.getElementById('clock').innerHTML = String(d.getHours()).padStart(2, '0') + '<span class="colon">:</span>' + String(d.getMinutes()).padStart(2, '0'); };
+  tick(); setInterval(tick, 1000);
+  document.getElementById('f').onsubmit = (e) => { e.preventDefault(); const v = document.getElementById('q').value.trim(); if (v) go(v); };
+  root.querySelectorAll('.tile').forEach((t) => t.onclick = (e) => go(t.dataset.u, e.ctrlKey || e.button === 1));
+  setTimeout(() => document.getElementById('q').focus(), 50);
+}
+
+const NAV = [['history', 'История', '🕘'], ['bookmarks', 'Закладки', '★'], ['downloads', 'Загрузки', '⬇'], ['settings', 'Настройки', '⚙'], ['shortcuts', 'Горячие клавиши', '⌨']];
+function shell(page, title, sub, body) {
+  document.title = title;
+  root.innerHTML = `<div class="app"><nav class="side"><div class="brand"><div class="logo"></div>Aurora</div>
+    ${NAV.map(([p, n, i]) => `<a class="nav ${p === page ? 'on' : ''}" href="?p=${p}"><span style="width:18px;text-align:center">${i}</span>${n}</a>`).join('')}
+    </nav><section class="content rise"><h1>${title}</h1><p class="sub">${sub}</p>${body}</section></div>`;
+}
+function rowsWithRemove(sel, onRemove) {
+  root.querySelectorAll(sel).forEach((r) => {
+    r.onclick = (e) => { if (!e.target.closest('.x')) go(r.dataset.u, e.ctrlKey); };
+    const x = r.querySelector('.x');
+    if (x) x.onclick = () => { r.classList.add('gone'); onRemove(r.dataset.u); setTimeout(() => r.remove(), 350); };
+  });
+}
+
+function history_() {
+  shell('history', 'История', `${DATA.history.length} записей · хранится только на этом компьютере`,
+    `<div class="bar"><input class="field" id="q" placeholder="Поиск по истории" autofocus><button class="btn danger" id="clr">Очистить всё</button></div><div id="list"></div>`);
+  const list = document.getElementById('list');
+  const render = (q) => {
+    q = q.toLowerCase();
+    const items = DATA.history.filter((h) => !q || (h.title + ' ' + h.url).toLowerCase().includes(q)).slice(0, 400);
+    if (!items.length) { list.innerHTML = '<div class="empty">Ничего не найдено</div>'; return; }
+    let last = '', html = '';
+    items.forEach((h, i) => {
+      const d = day(h.last);
+      if (d !== last) { html += `<div class="group">${d}</div>`; last = d; }
+      html += `<div class="row" data-u="${esc(h.url)}" style="animation-delay:${Math.min(i, 20) * .02}s">${icon(h.url, h.title)}<div class="t"><b>${esc(h.title || host(h.url))}</b><small>${esc(h.url)}</small></div><span class="meta">${ago(h.last)}${h.visits > 1 ? ' · ' + h.visits + '×' : ''}</span><button class="x" title="Удалить">✕</button></div>`;
+    });
+    list.innerHTML = html;
+    rowsWithRemove('.row', (u) => { post({ t: 'removeHistory', url: u }); DATA.history = DATA.history.filter((h) => h.url !== u); });
+  };
+  render('');
+  document.getElementById('q').oninput = (e) => render(e.target.value);
+  document.getElementById('clr').onclick = () => { if (confirm('Удалить всю историю?')) { post({ t: 'clearHistory' }); DATA.history = []; render(''); } };
+}
+
+function bookmarks() {
+  shell('bookmarks', 'Закладки', 'Ctrl+D — добавить текущую страницу',
+    `<div class="bar"><input class="field" id="q" placeholder="Поиск по закладкам" autofocus></div><div id="list"></div>`);
+  const list = document.getElementById('list');
+  const render = (q) => {
+    q = q.toLowerCase();
+    const items = DATA.bookmarks.filter((b) => !q || (b.title + ' ' + b.url).toLowerCase().includes(q));
+    list.innerHTML = items.length ? items.map((b, i) => `<div class="row" data-u="${esc(b.url)}" style="animation-delay:${Math.min(i, 20) * .025}s">${icon(b.url, b.title)}<div class="t"><b>${esc(b.title)}</b><small>${esc(b.url)}</small></div><span class="meta">${ago(b.added)}</span><button class="x" title="Удалить">✕</button></div>`).join('') : '<div class="empty">Пока пусто. Нажмите ☆ в адресной строке.</div>';
+    rowsWithRemove('.row', (u) => { post({ t: 'removeBookmark', url: u }); DATA.bookmarks = DATA.bookmarks.filter((b) => b.url !== u); });
+  };
+  render('');
+  document.getElementById('q').oninput = (e) => render(e.target.value);
+}
+
+function downloads() {
+  shell('downloads', 'Загрузки', 'Файлы сохраняются в папку «Загрузки»',
+    `<div class="bar"><button class="btn" id="clr">Очистить список</button></div><div id="list"></div>`);
+  const list = document.getElementById('list');
+  const render = () => {
+    list.innerHTML = DATA.downloads.length ? DATA.downloads.map((d, i) => {
+      const name = d.path.split(/[\\/]/).pop();
+      const st = d.ok === null || d.ok === undefined ? '<div class="prog"><i></i></div>' : d.ok ? '<span class="meta" style="color:var(--ok)">✓ готово</span>' : '<span class="meta" style="color:var(--bad)">ошибка</span>';
+      return `<div class="row dl" data-p="${esc(d.path)}" style="animation-delay:${Math.min(i, 20) * .025}s"><div class="ico">📄</div><div class="t"><b>${esc(name)}</b><small>${esc(host(d.url))} · ${ago(d.ts)}</small></div>${st}</div>`;
+    }).join('') : '<div class="empty">Загрузок пока нет</div>';
+    list.querySelectorAll('.dl').forEach((r) => r.onclick = () => post({ t: 'openPath', path: r.dataset.p }));
+  };
+  render();
+  document.getElementById('clr').onclick = () => { post({ t: 'clearDownloads' }); DATA.downloads = DATA.downloads.filter((d) => d.ok == null); render(); };
+}
+
+function settings() {
+  const sw = (k, t, s) => `<div class="set"><div class="t">${t}<small>${s}</small></div><div class="sw ${S[k] ? 'on' : ''}" data-k="${k}"></div></div>`;
+  const colors = ['#7c5cff', '#00b3ff', '#00c98d', '#ff9f1c', '#ff4f7b', '#e14bff', '#9aa0a6'];
+  shell('settings', 'Настройки', 'Изменения сохраняются сразу',
+    `<div class="card"><div class="set"><div class="t">Поисковая система<small>Используется в адресной строке</small></div>
+      <select class="field" id="engine">${Object.entries(ENGINES).map(([k, v]) => `<option value="${k}" ${S.search === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div class="set"><div class="t">Акцентный цвет<small>Цвет интерфейса и анимаций</small></div><div class="swatches">${colors.map((c) => `<div class="swatch ${S.accent === c ? 'on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('')}</div></div>
+      ${sw('site_tint', 'Цвет сайта в панели', 'Панель мягко подстраивается под theme-color сайта')}
+      ${sw('reduce_motion', 'Меньше анимаций', 'Короткие спокойные переходы')}</div>
+    <div class="card">${sw('shield', 'Щит от трекеров и рекламы', 'Блокирует известные трекеры и скрывает рекламные блоки (применяется после перезагрузки вкладки)')}
+      ${sw('dnt', 'Do Not Track + Global Privacy Control', 'Просить сайты не отслеживать вас')}
+      <div class="set"><div class="t">Очистить cookies и кэш<small>Выйдет из всех аккаунтов</small></div><button class="btn danger" id="clear">Очистить</button></div></div>
+    <div class="card">${sw('restore_session', 'Восстанавливать вкладки', 'Открывать вкладки прошлого сеанса при запуске')}
+      <div class="set"><div class="t">Сон вкладок<small>Фоновые вкладки выгружаются из памяти и просыпаются по клику</small></div>
+      <select class="field" id="sleep">${[[0, 'Никогда'], [10, 'Через 10 минут'], [30, 'Через 30 минут'], [60, 'Через час'], [180, 'Через 3 часа']].map(([v, n]) => `<option value="${v}" ${+S.sleep_minutes === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div>`);
+  const set = (key, value) => { S[key] = value; post({ t: 'setSetting', key, value }); };
+  root.querySelectorAll('.sw').forEach((s) => s.onclick = () => { s.classList.toggle('on'); set(s.dataset.k, s.classList.contains('on')); if (s.dataset.k === 'reduce_motion') document.documentElement.classList.toggle('reduce', S.reduce_motion); });
+  root.querySelectorAll('.swatch').forEach((s) => s.onclick = () => { root.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); s.classList.add('on'); set('accent', s.dataset.c); document.documentElement.style.setProperty('--accent', s.dataset.c); });
+  document.getElementById('engine').onchange = (e) => set('search', e.target.value);
+  document.getElementById('sleep').onchange = (e) => set('sleep_minutes', +e.target.value);
+  document.getElementById('clear').onclick = () => { if (confirm('Удалить все cookies и кэш?')) post({ t: 'clearBrowsingData' }); };
+}
+
+function shortcuts() {
+  const K = [['Ctrl+K / Ctrl+L', 'Командная строка (адрес, поиск, вкладки, команды)'], ['Ctrl+T', 'Новая вкладка'], ['Ctrl+Shift+N', 'Инкогнито-вкладка'],
+    ['Ctrl+W', 'Закрыть вкладку'], ['Ctrl+Shift+T', 'Вернуть закрытую вкладку'], ['Ctrl+Tab / Ctrl+Shift+Tab', 'Следующая / предыдущая вкладка'],
+    ['Ctrl+1…9', 'Перейти к вкладке (9 — последняя)'], ['Ctrl+Shift+S', 'Разделить экран (две вкладки рядом)'], ['Ctrl+F', 'Поиск на странице'],
+    ['Ctrl+D', 'Закладка'], ['Ctrl+H / Ctrl+J', 'История / Загрузки'], ['Ctrl+Shift+B', 'Закладки'], ['Ctrl+,', 'Настройки'], ['Ctrl + = / − / 0', 'Масштаб'],
+    ['Alt+D', 'Тёмная тема для сайта'], ['Alt+R', 'Режим чтения'], ['Alt+← / Alt+→', 'Назад / Вперёд'], ['Ctrl+R, F5', 'Обновить'],
+    ['F11', 'Полноэкранный режим'], ['F12', 'Инструменты разработчика']];
+  shell('shortcuts', 'Горячие клавиши', 'Работают на любой раскладке', `<div class="card keys">${K.map(([k, d]) => `<div>${d}</div><div>${k.split(' ').map((x) => /^[\/…,·+−=]$|^\/$/.test(x) ? x : `<kbd>${esc(x)}</kbd>`).join(' ')}</div>`).join('')}</div>`);
+}
+
+({ newtab, history: history_, bookmarks, downloads, settings, shortcuts }[DATA.page] || newtab)();
+})();
+</script>
+</body>
+</html>
